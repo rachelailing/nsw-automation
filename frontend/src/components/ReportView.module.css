@@ -1,0 +1,89 @@
+.container {
+  padding: 20px;
+  background: #0f172a;
+  border-radius: 12px;
+  margin: 16px;
+  border: 1px solid #1e293b;
+}
+
+.title {
+  font-size: 1.2rem;
+  color: #e2e8f0;
+  margin-bottom: 16px;
+}
+
+.section {
+  margin-bottom: 20px;
+}
+
+.section h3 {
+  font-size: 0.95rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.section p {
+  color: #cbd5e1;
+  line-height: 1.6;
+}
+
+.actionList {
+  list-style: none;
+  padding: 0;
+  counter-reset: action;
+}
+
+.actionItem {
+  background: #1e293b;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+}
+
+.actionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.priority {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.high {
+  background: #dc2626;
+  color: #fff;
+}
+
+.medium {
+  background: #f59e0b;
+  color: #000;
+}
+
+.low {
+  background: #22c55e;
+  color: #000;
+}
+
+.rationale {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  margin: 0;
+}
+
+.recommendations {
+  color: #cbd5e1;
+  padding-left: 20px;
+}
+
+.recommendations li {
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
