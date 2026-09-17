@@ -10,7 +10,7 @@ os.environ["OPENAI_API_KEY"] = "dummy-key-for-testing"
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 
-from ai.subagents import question_agent, text_defect_agent, image_defect_agent
+from ai.subagents import question_agent, text_defect_agent, image_defect_agent, cause_ranking_agent
 
 class TestQuestionAgent(unittest.IsolatedAsyncioTestCase):
 
@@ -161,6 +161,99 @@ class TestImageDefectAgent(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["confidence"], 0.0)
         self.assertIn("No image", result["reasoning"])
+
+
+class TestCauseRankingAgent(unittest.IsolatedAsyncioTestCase):
+
+    @patch('ai.subagents.cause_ranking_agent.client')
+    async def test_run_generates_ranked_causes_with_rag_context(self, mock_openai_client):
+        cause_1 = MagicMock()
+        cause_1.rank = 1
+        cause_1.cause = "Dispensing pressure is set too low"
+        cause_1.category = "Dispensing Parameters"
+        cause_1.confidence = 0.55
+        cause_1.reasoning = "The dots are consistently undersized, which points to insufficient dispense volume."
+
+        cause_2 = MagicMock()
+        cause_2.rank = 2
+        cause_2.cause = "Nozzle is partially clogged"
+        cause_2.category = "Nozzle Condition"
+        cause_2.confidence = 0.3
+        cause_2.reasoning = "A partial clog can restrict flow and reduce dot size."
+
+        cause_3 = MagicMock()
+        cause_3.rank = 3
+        cause_3.cause = "Material viscosity has increased"
+        cause_3.category = "Material Condition"
+        cause_3.confidence = 0.15
+        cause_3.reasoning = "Higher viscosity can reduce flow under the same pressure."
+
+        mock_parsed = MagicMock()
+        mock_parsed.causes = [cause_1, cause_2, cause_3]
+
+        mock_message = MagicMock()
+        mock_message.parsed = mock_parsed
+
+        mock_openai_client.beta.chat.completions.parse.return_value = MagicMock(
+            choices=[MagicMock(message=mock_message)]
+        )
+
+        similar_cases = [
+            {
+                "problem_description": "Small dots on Line 3",
+                "defect_type": "Undersized Dot",
+                "causes": [{"cause": "Low dispensing pressure"}],
+                "action_plan": "Increase pressure and verify dot diameter.",
+                "outcome": "Fixed",
+            }
+        ]
+
+        result = await cause_ranking_agent.run(
+            defect_type="Undersized Dot",
+            problem_description="Glue dots are too small.",
+            qa_pairs=[{"question": "Is it continuous?", "answer": "Yes, every cycle."}],
+            similar_cases=similar_cases,
+        )
+
+        self.assertTrue(result["rag_context_used"])
+        self.assertEqual(len(result["causes"]), 3)
+        self.assertEqual(result["causes"][0]["rank"], 1)
+        self.assertEqual(result["causes"][0]["category"], "Dispensing Parameters")
+
+        call_args = mock_openai_client.beta.chat.completions.parse.call_args
+        called_messages = call_args.kwargs["messages"]
+        self.assertIn("Small dots on Line 3", called_messages[0]["content"])
+        self.assertIn("Undersized Dot", called_messages[1]["content"])
+        self.assertIn("Yes, every cycle.", called_messages[1]["content"])
+
+    @patch('ai.subagents.cause_ranking_agent.client')
+    async def test_run_normalizes_unknown_category_and_confidence(self, mock_openai_client):
+        cause = MagicMock()
+        cause.rank = 1
+        cause.cause = "Unknown mechanical issue"
+        cause.category = "Random Category"
+        cause.confidence = 1.5
+        cause.reasoning = "The evidence is unclear."
+
+        mock_parsed = MagicMock()
+        mock_parsed.causes = [cause]
+
+        mock_message = MagicMock()
+        mock_message.parsed = mock_parsed
+
+        mock_openai_client.beta.chat.completions.parse.return_value = MagicMock(
+            choices=[MagicMock(message=mock_message)]
+        )
+
+        result = await cause_ranking_agent.run(
+            defect_type="Irregular Shape",
+            problem_description="Dot shape is abnormal.",
+            qa_pairs=[],
+        )
+
+        self.assertFalse(result["rag_context_used"])
+        self.assertEqual(result["causes"][0]["category"], "Equipment Condition")
+        self.assertEqual(result["causes"][0]["confidence"], 1.0)
 
 if __name__ == '__main__':
     unittest.main()

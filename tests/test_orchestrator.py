@@ -186,6 +186,83 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Excessive Spreading", question_context)
         self.assertIn("Ask only for information", question_context)
 
+    @patch("ai.orchestrator.run_cause_ranking_agent", new_callable=AsyncMock)
+    @patch("ai.orchestrator.get_similar_cases", new_callable=AsyncMock)
+    async def test_ranking_step_calls_cause_ranking_agent_with_similar_cases(
+        self,
+        mock_get_similar_cases,
+        mock_cause_ranking_agent,
+    ):
+        mock_get_similar_cases.return_value = [
+            {
+                "problem_description": "Small dots on previous run",
+                "defect_type": "Undersized Dot",
+                "causes": [{"cause": "Low pressure"}],
+                "action_plan": "Increase pressure.",
+                "outcome": "Fixed",
+            }
+        ]
+        mock_cause_ranking_agent.return_value = {
+            "causes": [
+                {
+                    "rank": 1,
+                    "cause": "Dispensing pressure is too low",
+                    "category": "Dispensing Parameters",
+                    "confidence": 0.6,
+                    "reasoning": "The defect is continuous and dots are undersized.",
+                }
+            ],
+            "rag_context_used": True,
+        }
+
+        session_state = {
+            "step": "ranking",
+            "problem_description": "The dots are too small.",
+            "qa_pairs": [
+                {"question": "Is it continuous?", "answer": "Yes, every cycle."}
+            ],
+            "defect_type": "Undersized Dot",
+            "defect_result": {
+                "defect_type": "Undersized Dot",
+                "confidence": 0.88,
+                "source": "text",
+                "reasoning": "The answers point to insufficient material.",
+            },
+        }
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message="Rank causes",
+            session_state=session_state,
+        )
+
+        self.assertEqual(result["step"], "reporting")
+        self.assertIn("Dispensing pressure is too low", result["reply"])
+        self.assertEqual(result["updated_state"]["step"], "reporting")
+        self.assertEqual(len(result["updated_state"]["causes"]), 1)
+        mock_get_similar_cases.assert_awaited_once_with("Undersized Dot")
+
+        call_args = mock_cause_ranking_agent.call_args
+        self.assertEqual(call_args.kwargs["defect_type"], "Undersized Dot")
+        self.assertIn("Defect identification summary", call_args.kwargs["problem_description"])
+        self.assertEqual(call_args.kwargs["similar_cases"], mock_get_similar_cases.return_value)
+
+    async def test_ranking_step_without_defect_type_returns_to_questioning(self):
+        session_state = {
+            "step": "ranking",
+            "problem_description": "The dots are too small.",
+            "qa_pairs": [],
+        }
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message="Rank causes",
+            session_state=session_state,
+        )
+
+        self.assertEqual(result["step"], "questioning")
+        self.assertIn("identify the defect type", result["reply"])
+
 
 if __name__ == "__main__":
     unittest.main()

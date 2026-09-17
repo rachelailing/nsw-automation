@@ -34,6 +34,13 @@ def load_prompt(filename: str) -> str:
         return f.read()
 
 
+async def get_similar_cases(defect_type: str) -> list[dict]:
+    """Lazy-load the database dependency only when cause ranking needs RAG."""
+    from db.case_history import get_similar_cases as fetch_similar_cases
+
+    return await fetch_similar_cases(defect_type)
+
+
 PHOTO_ONLY_MESSAGES = {
     "",
     "image uploaded",
@@ -151,6 +158,56 @@ def combine_defect_results(text_result: dict | None, image_result: dict | None =
     }
 
 
+def build_ranking_problem_context(session_state: dict) -> str:
+    problem_description = session_state.get("problem_description") or ""
+    defect_result = session_state.get("defect_result") or {}
+    image_result = session_state.get("image_result") or {}
+
+    parts = []
+    if has_meaningful_text(problem_description):
+        parts.append(f"Problem description: {problem_description}")
+
+    if defect_result:
+        parts.append(
+            "Defect identification summary:\n"
+            f"- Defect type: {defect_result.get('defect_type')}\n"
+            f"- Confidence: {defect_result.get('confidence')}\n"
+            f"- Source: {defect_result.get('source')}\n"
+            f"- Reasoning: {defect_result.get('reasoning')}"
+        )
+
+    if image_result:
+        parts.append(format_image_context(image_result))
+
+    return "\n\n".join(parts) if parts else "No problem description was provided."
+
+
+def format_cause_ranking_reply(ranking_result: dict) -> str:
+    causes = ranking_result.get("causes") or []
+    if not causes:
+        return "I could not generate ranked causes yet. Please provide more troubleshooting context."
+
+    lines = [
+        "Here are the most likely causes ranked by troubleshooting priority:",
+        "",
+    ]
+
+    for cause in causes:
+        lines.append(
+            f"{cause.get('rank')}. {cause.get('cause')} "
+            f"({cause.get('category')}, confidence {cause.get('confidence')})"
+        )
+        lines.append(f"   Reasoning: {cause.get('reasoning')}")
+
+    if ranking_result.get("rag_context_used"):
+        lines.append("")
+        lines.append("I used similar past cases from the case history to inform this ranking.")
+
+    lines.append("")
+    lines.append("Next, this should flow into the troubleshooting action plan/report.")
+    return "\n".join(lines)
+
+
 async def run_orchestrator(session_id: str, user_message: str, session_state: dict) -> dict:
     """
     Process a user message through the orchestrator.
@@ -248,6 +305,37 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
         return {
             "reply": reply,
             "step": current_step,
+            "updated_state": session_state,
+        }
+
+    if current_step == "ranking":
+        defect_type = session_state.get("defect_type")
+        if not defect_type:
+            return {
+                "reply": "I need to identify the defect type before ranking possible causes.",
+                "step": "questioning",
+                "updated_state": {**session_state, "step": "questioning"},
+            }
+
+        similar_cases = session_state.get("similar_cases")
+        if similar_cases is None:
+            similar_cases = await get_similar_cases(defect_type)
+            session_state["similar_cases"] = similar_cases
+
+        ranking_result = await run_cause_ranking_agent(
+            defect_type=defect_type,
+            problem_description=build_ranking_problem_context(session_state),
+            qa_pairs=qa_pairs,
+            similar_cases=similar_cases,
+        )
+
+        session_state["cause_ranking_result"] = ranking_result
+        session_state["causes"] = ranking_result.get("causes", [])
+        session_state["step"] = "reporting"
+
+        return {
+            "reply": format_cause_ranking_reply(ranking_result),
+            "step": "reporting",
             "updated_state": session_state,
         }
         
