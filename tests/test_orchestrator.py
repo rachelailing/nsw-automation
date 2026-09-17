@@ -89,6 +89,103 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    @patch("ai.orchestrator.run_image_defect_agent", new_callable=AsyncMock)
+    @patch("ai.orchestrator.run_text_defect_agent", new_callable=AsyncMock)
+    @patch("ai.orchestrator.run_question_agent", new_callable=AsyncMock)
+    async def test_questioning_calls_text_and_image_defect_agents_when_image_exists(
+        self,
+        mock_question_agent,
+        mock_text_defect_agent,
+        mock_image_defect_agent,
+    ):
+        mock_question_agent.return_value = {
+            "questions": [],
+            "enough_info": True,
+        }
+        mock_text_defect_agent.return_value = {
+            "defect_type": "Irregular Shape",
+            "confidence": 0.7,
+            "reasoning": "The description mentions tails and uneven dot shape.",
+        }
+        mock_image_defect_agent.return_value = {
+            "defect_type": "Irregular Shape",
+            "confidence": 0.9,
+            "reasoning": "The uploaded image shows asymmetry and satellite droplets.",
+            "observations": ["asymmetric dot", "satellite droplets"],
+        }
+
+        session_state = {
+            "step": "questioning",
+            "problem_description": "The glue dot has a tail.",
+            "qa_pairs": [],
+            "pending_questions": [],
+            "image_url": "https://example.com/defect.png",
+        }
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message="Nozzle was recently changed.",
+            session_state=session_state,
+        )
+
+        self.assertEqual(result["step"], "ranking")
+        self.assertIn("Irregular Shape", result["reply"])
+        self.assertIn("text_and_image", result["reply"])
+        self.assertEqual(result["updated_state"]["defect_result"]["source"], "text_and_image")
+        mock_text_defect_agent.assert_awaited_once()
+        mock_image_defect_agent.assert_awaited_once_with(
+            image_url="https://example.com/defect.png",
+            image_bytes=None,
+        )
+
+    @patch("ai.orchestrator.run_image_defect_agent", new_callable=AsyncMock)
+    @patch("ai.orchestrator.run_question_agent", new_callable=AsyncMock)
+    async def test_photo_first_analyzes_image_before_asking_remaining_questions(
+        self,
+        mock_question_agent,
+        mock_image_defect_agent,
+    ):
+        mock_image_defect_agent.return_value = {
+            "defect_type": "Excessive Spreading",
+            "confidence": 0.84,
+            "reasoning": "The dot boundary appears wide and wet.",
+            "observations": ["wide wetting area"],
+            "likely_visible_symptoms": ["material spreading beyond dot boundary"],
+            "unanswered_context_needed": ["material type", "defect frequency"],
+            "image_quality_notes": "Image is clear enough for preliminary classification.",
+        }
+        mock_question_agent.return_value = {
+            "questions": ["What material is being dispensed?"],
+            "enough_info": False,
+        }
+
+        session_state = {
+            "step": "questioning",
+            "problem_description": "",
+            "qa_pairs": [],
+            "pending_questions": [],
+            "image_url": "https://example.com/defect.png",
+        }
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message="Image uploaded",
+            session_state=session_state,
+        )
+
+        self.assertEqual(result["step"], "questioning")
+        self.assertEqual(result["reply"], "What material is being dispensed?")
+        self.assertEqual(
+            result["updated_state"]["image_result"]["defect_type"],
+            "Excessive Spreading",
+        )
+
+        call_args = mock_question_agent.call_args
+        question_context = call_args.kwargs["problem_description"]
+        self.assertIn("Uploaded Image Analysis", question_context)
+        self.assertIn("Excessive Spreading", question_context)
+        self.assertIn("Ask only for information", question_context)
+
 
 if __name__ == "__main__":
     unittest.main()

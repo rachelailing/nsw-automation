@@ -10,7 +10,7 @@ os.environ["OPENAI_API_KEY"] = "dummy-key-for-testing"
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 
-from ai.subagents import question_agent, text_defect_agent
+from ai.subagents import question_agent, text_defect_agent, image_defect_agent
 
 class TestQuestionAgent(unittest.IsolatedAsyncioTestCase):
 
@@ -130,6 +130,37 @@ class TestTextDefectAgent(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["defect_type"], "Irregular Shape")
         self.assertEqual(result["confidence"], 1.0)
+
+
+class TestImageDefectAgent(unittest.IsolatedAsyncioTestCase):
+
+    @patch('ai.subagents.image_defect_agent.client')
+    async def test_run_identifies_defect_from_image_url(self, mock_openai_client):
+        mock_parsed = MagicMock()
+        mock_parsed.defect_type = "Excessive Spreading"
+        mock_parsed.confidence = 0.91
+        mock_parsed.reasoning = "The material spreads beyond the expected boundary."
+        mock_parsed.observations = ["wide wetting area", "soft dot boundary"]
+
+        mock_message = MagicMock()
+        mock_message.parsed = mock_parsed
+
+        mock_openai_client.beta.chat.completions.parse.return_value = MagicMock(
+            choices=[MagicMock(message=mock_message)]
+        )
+
+        result = await image_defect_agent.run(image_url="https://example.com/defect.png")
+
+        self.assertEqual(result["defect_type"], "Excessive Spreading")
+        self.assertEqual(result["confidence"], 0.91)
+        self.assertEqual(len(result["observations"]), 2)
+        mock_openai_client.beta.chat.completions.parse.assert_called_once()
+
+    async def test_run_without_image_returns_no_image_result(self):
+        result = await image_defect_agent.run()
+
+        self.assertEqual(result["confidence"], 0.0)
+        self.assertIn("No image", result["reasoning"])
 
 if __name__ == '__main__':
     unittest.main()

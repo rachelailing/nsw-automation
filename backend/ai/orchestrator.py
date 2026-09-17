@@ -34,6 +34,123 @@ def load_prompt(filename: str) -> str:
         return f.read()
 
 
+PHOTO_ONLY_MESSAGES = {
+    "",
+    "image uploaded",
+    "photo uploaded",
+    "uploaded image",
+    "uploaded photo",
+    "[image uploaded]",
+    "[photo uploaded]",
+}
+
+
+def has_meaningful_text(value: str | None) -> bool:
+    if not value:
+        return False
+    return value.strip().lower() not in PHOTO_ONLY_MESSAGES
+
+
+def format_image_context(image_result: dict | None) -> str:
+    if not image_result:
+        return ""
+
+    observations = image_result.get("observations") or []
+    visible_symptoms = image_result.get("likely_visible_symptoms") or []
+    unknowns = image_result.get("unanswered_context_needed") or []
+
+    return (
+        "Uploaded Image Analysis:\n"
+        f"- Preliminary defect type: {image_result.get('defect_type')}\n"
+        f"- Confidence: {image_result.get('confidence')}\n"
+        f"- Visual reasoning: {image_result.get('reasoning')}\n"
+        f"- Observations: {', '.join(observations) if observations else 'none listed'}\n"
+        f"- Symptoms already visible from photo: {', '.join(visible_symptoms) if visible_symptoms else 'none listed'}\n"
+        f"- Context still needed from user: {', '.join(unknowns) if unknowns else 'none listed'}\n"
+        f"- Image quality notes: {image_result.get('image_quality_notes', '')}"
+    )
+
+
+def build_question_context(problem_description: str, image_result: dict | None) -> str:
+    parts = []
+
+    if has_meaningful_text(problem_description):
+        parts.append(f"User text description: {problem_description}")
+    elif image_result:
+        parts.append("User uploaded a defect photo first and has not provided a detailed text description yet.")
+
+    image_context = format_image_context(image_result)
+    if image_context:
+        parts.append(image_context)
+        parts.append(
+            "Ask only for information that cannot be determined from the image, "
+            "such as material, frequency, recent changes, equipment/nozzle, or process settings."
+        )
+
+    return "\n\n".join(parts) if parts else problem_description
+
+
+def combine_defect_results(text_result: dict | None, image_result: dict | None = None) -> dict:
+    """Merge text and image defect classifications into one decision."""
+    if not text_result and image_result:
+        return {
+            **image_result,
+            "source": "image",
+            "text_result": None,
+            "image_result": image_result,
+        }
+
+    if not image_result:
+        return {
+            **text_result,
+            "source": "text",
+            "text_result": text_result,
+            "image_result": None,
+        }
+
+    text_confidence = text_result.get("confidence", 0.0)
+    image_confidence = image_result.get("confidence", 0.0)
+    text_type = text_result.get("defect_type")
+    image_type = image_result.get("defect_type")
+
+    if text_type == image_type:
+        confidence = round(max(text_confidence, image_confidence), 2)
+        reasoning = (
+            f"Text and image analysis agree on {text_type}. "
+            f"Text reasoning: {text_result.get('reasoning')} "
+            f"Image reasoning: {image_result.get('reasoning')}"
+        )
+        chosen_type = text_type
+        source = "text_and_image"
+    elif image_confidence >= text_confidence + 0.15:
+        confidence = image_confidence
+        reasoning = (
+            f"Image analysis is more confident than text analysis. "
+            f"Image result: {image_type} because {image_result.get('reasoning')} "
+            f"Text alternative: {text_type} because {text_result.get('reasoning')}"
+        )
+        chosen_type = image_type
+        source = "image"
+    else:
+        confidence = text_confidence
+        reasoning = (
+            f"Text analysis is used as the primary result because it includes process context. "
+            f"Text result: {text_type} because {text_result.get('reasoning')} "
+            f"Image alternative: {image_type} because {image_result.get('reasoning')}"
+        )
+        chosen_type = text_type
+        source = "text"
+
+    return {
+        "defect_type": chosen_type,
+        "confidence": confidence,
+        "reasoning": reasoning,
+        "source": source,
+        "text_result": text_result,
+        "image_result": image_result,
+    }
+
+
 async def run_orchestrator(session_id: str, user_message: str, session_state: dict) -> dict:
     """
     Process a user message through the orchestrator.
@@ -42,9 +159,19 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
     qa_pairs = session_state.get("qa_pairs", [])
     pending_questions = session_state.get("pending_questions", [])
     problem_description = session_state.get("problem_description", "")
+    image_url = session_state.get("image_url")
+    image_bytes = session_state.get("image_bytes")
+    image_result = session_state.get("image_result")
+
+    if (image_url or image_bytes) and not image_result:
+        image_result = await run_image_defect_agent(
+            image_url=image_url,
+            image_bytes=image_bytes,
+        )
+        session_state["image_result"] = image_result
 
     if current_step == "questioning":
-        if not problem_description:
+        if not problem_description and has_meaningful_text(user_message):
             problem_description = user_message
             session_state["problem_description"] = problem_description
         elif pending_questions:
@@ -64,16 +191,39 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
                 }
 
         # Call the Question Agent
+        question_context = build_question_context(problem_description, image_result)
         result = await run_question_agent(
-            problem_description=problem_description,
+            problem_description=question_context,
             previous_answers=qa_pairs
         )
         
         if result.get("enough_info"):
-            defect_result = await run_text_defect_agent(
-                problem_description=problem_description,
-                qa_pairs=qa_pairs,
-            )
+            has_text_evidence = has_meaningful_text(problem_description) or bool(qa_pairs)
+
+            if has_text_evidence and image_result and not session_state.get("text_result"):
+                text_result = await run_text_defect_agent(
+                    problem_description=problem_description or "Photo-first session with follow-up Q&A.",
+                    qa_pairs=qa_pairs,
+                )
+                session_state["text_result"] = text_result
+                defect_result = combine_defect_results(text_result, image_result)
+            elif has_text_evidence and session_state.get("text_result"):
+                defect_result = combine_defect_results(session_state["text_result"], image_result)
+            elif has_text_evidence:
+                text_result = await run_text_defect_agent(
+                    problem_description=problem_description,
+                    qa_pairs=qa_pairs,
+                )
+                session_state["text_result"] = text_result
+                defect_result = combine_defect_results(text_result)
+            elif image_result:
+                defect_result = combine_defect_results(None, image_result)
+            else:
+                return {
+                    "reply": "Please provide a problem description or upload a defect photo so I can begin the diagnosis.",
+                    "step": "questioning",
+                    "updated_state": session_state,
+                }
 
             session_state["defect_result"] = defect_result
             session_state["defect_type"] = defect_result.get("defect_type")
@@ -83,6 +233,7 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
                 "I have enough information to identify the likely defect.\n\n"
                 f"Defect type: {defect_result.get('defect_type')}\n"
                 f"Confidence: {defect_result.get('confidence')}\n\n"
+                f"Source: {defect_result.get('source')}\n\n"
                 f"Reasoning: {defect_result.get('reasoning')}\n\n"
                 "Next, this should flow into cause ranking."
             )

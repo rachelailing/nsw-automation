@@ -148,7 +148,7 @@ ai-dispensing-defect-detective/
 │   ├── ai/
 │   │   ├── orchestrator.py      # Main Orchestrator — runs the conversation, calls subagents as tools
 │   │   ├── subagents/
-│   │   │   ├── question_agent.py       # Step 1: dynamic questioning
+│   │   │   ├── question_agent.py       # Step 1: dynamic questioning (skips questions already answered by an uploaded photo)
 │   │   │   ├── text_defect_agent.py    # Step 2: text-based defect identification
 │   │   │   ├── image_defect_agent.py   # Bonus 1: multimodal image defect identification
 │   │   │   ├── cause_ranking_agent.py  # Step 3–4: cause generation + scoring (+ RAG lookup, scoped to project_id)

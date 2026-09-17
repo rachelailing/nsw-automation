@@ -77,6 +77,8 @@ Implied/likely inputs based on the described functionality:
 
 ## 6. Engine Flow
 
+**Team-proposed flexibility:** the flow below assumes the user starts by describing the problem in text (Step 1). In practice, a user should also be able to **upload a photo of the defect right away, before or instead of answering questions** — not just as a Bonus add-on tacked onto the end of the text flow. If a photo is uploaded first, Step 1's questions adapt: skip anything the photo already answers (e.g., which defect it looks like), and only ask about what's still unclear (e.g., material used, how often it happens).
+
 **Step 1 — Dispensing Problem Discovery**
 AI asks ~5 smart diagnostic questions, e.g.:
 - What material is being dispensed?
@@ -85,9 +87,10 @@ AI asks ~5 smart diagnostic questions, e.g.:
 - Has the material, nozzle, or process setting recently changed?
 - Is the defect happening at one location or across multiple locations?
 - *(Bonus)* Dynamically ask additional follow-up questions based on user answers.
+- **(Team-proposed)** If a photo was already uploaded, fewer or different questions may be asked, since some answers can be read from the image.
 
 **Step 2 — Identify the Dispensing Defect**
-AI analyses input and identifies the most likely defect, with a confidence level and possible symptoms.
+AI analyses input and identifies the most likely defect, with a confidence level and possible symptoms. If a photo was provided, this step draws on the image analysis directly instead of waiting for it to be requested separately.
 
 **Step 3 — AI Cause Analysis**
 AI generates a list of possible causes (e.g., material condition, air bubbles, dispensing parameters, nozzle condition, equipment condition).
@@ -101,7 +104,7 @@ AI recommends an ordered sequence of checks/actions for the user to perform.
 **Step 6/7 — Report Generation**
 Engine compiles the above into a simple troubleshooting report.
 
-Full engine sequence: Define problem → AI asks questions → Analyse symptoms → Compare possible causes → Rank possible causes → Recommend troubleshooting sequence → Generate report.
+Full engine sequence: Define problem (text and/or photo) → AI asks any remaining questions → Analyse symptoms → Compare possible causes → Rank possible causes → Recommend troubleshooting sequence → Generate report.
 
 ---
 
@@ -112,6 +115,7 @@ Full engine sequence: Define problem → AI asks questions → Analyse symptoms 
 - Support multi-turn, adaptive Q&A (not a fixed static form).
 - Output must include: identified defect, ranked causes with confidence scores, reasoning/explanation, and a recommended action sequence.
 - **Projects (team-proposed feature):** users can create a "Project" scoped to one machine/line/product (similar to Claude's Projects). Each Project keeps its own case history, so cause-ranking/RAG lookups only pull from relevant past cases instead of mixing unrelated machines or materials together. See system-architecture.md for how this fits the data flow.
+- **Flexible photo upload (team-proposed):** users can upload a defect photo at the very start of a session, not only after finishing the text Q&A. The system should accept a photo, text, or both, in any order, and adjust its questions accordingly. See system-architecture.md for how this changes the flow.
 
 ### 7.2 Bonus / Stretch Features
 - **Image Recognition:** Upload and analyze a photo of the dispensing result to detect defect type.

@@ -65,6 +65,7 @@ Where multi-agent genuinely earns its place here: **when the text-based diagnosi
 - Subagents are **stateless** — they don't remember past turns, they just do one focused job with the input they're given and return a result. This matches the Subagents pattern's core trade: strong context isolation (each subagent's prompt only contains what it needs — e.g., the Image Defect Agent doesn't need the full conversation history) at the cost of one extra call to route results back through the orchestrator.
 - When both a text description **and** an uploaded image are available, the **Text Defect ID Agent** and **Image Defect ID Agent** can run **in parallel**, then the orchestrator merges their findings before passing to Cause Ranking — this is where the token/latency savings from the article's Scenario 3 actually apply.
 - The **Cause Ranking Agent** is where the RAG lookup happens (querying Supabase for similar historical cases, per implementation.md's "How to Train the LLM" section) to ground its confidence scores in real precedent instead of guessing.
+- **Team-proposed: flexible entry point.** A user doesn't have to go through Question Agent first — they can upload a photo immediately, and the Orchestrator will call **Image Defect ID** right away. The Orchestrator then re-checks what's still unknown and only asks the Question Agent to cover the gaps (e.g., material type, frequency) instead of the full ~5-question list. This just changes *which subagent the Orchestrator calls first* — the subagents themselves don't need to know or care what order they were called in.
 
 ---
 
@@ -156,12 +157,13 @@ Similar in spirit to Claude's Projects — the user can create a Project represe
 ## Data Flow Summary
 
 0. User selects or creates a **Project** (e.g., "Line 3 – Solder Paste Dispenser") — everything below is scoped to this Project's `project_id`.
-1. User (Operator or Technician) opens a session → describes the problem in free text.
-2. Orchestrator runs the **Question Agent** logic → asks up to ~5 adaptive follow-ups.
-3. Once enough info is collected, Orchestrator calls **Text Defect ID** (and **Image Defect ID** in parallel, if a photo was uploaded).
-4. Results merge → Orchestrator calls **Cause Ranking Agent**, which queries Supabase for similar past cases **within the same Project** (RAG) and returns ranked causes + confidence scores + reasoning.
-5. Orchestrator calls **Report/Action Plan Agent** → produces the checklist and final report.
-6. The completed case (problem, causes, solution, outcome, `project_id`) is written back to Supabase, growing that Project's case-history database for future RAG lookups.
+1. User (Operator or Technician) opens a session and provides either **text, a photo, or both** — in whichever order is convenient for them:
+   - **Text-first path:** describes the problem in free text → Orchestrator runs the **Question Agent** logic, asking up to ~5 adaptive follow-ups.
+   - **Photo-first path (team-proposed):** uploads a defect photo right away → Orchestrator calls **Image Defect ID** immediately, then runs the **Question Agent** only for whatever the photo didn't already answer (fewer questions than the text-first path).
+2. Once enough info is collected either way, Orchestrator calls **Text Defect ID** and/or **Image Defect ID** (in parallel, if both text and a photo are available) to confirm the defect type.
+3. Results merge → Orchestrator calls **Cause Ranking Agent**, which queries Supabase for similar past cases **within the same Project** (RAG) and returns ranked causes + confidence scores + reasoning.
+4. Orchestrator calls **Report/Action Plan Agent** → produces the checklist and final report.
+5. The completed case (problem, causes, solution, outcome, `project_id`) is written back to Supabase, growing that Project's case-history database for future RAG lookups.
 
 ---
 
