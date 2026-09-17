@@ -10,7 +10,7 @@ os.environ["OPENAI_API_KEY"] = "dummy-key-for-testing"
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 
-from ai.subagents import question_agent
+from ai.subagents import question_agent, text_defect_agent
 
 class TestQuestionAgent(unittest.IsolatedAsyncioTestCase):
 
@@ -71,6 +71,65 @@ class TestQuestionAgent(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Has the material expired?", user_message_content)
         self.assertIn("25 degrees Celsius", user_message_content)
 
+
+class TestTextDefectAgent(unittest.IsolatedAsyncioTestCase):
+
+    @patch('ai.subagents.text_defect_agent.client')
+    async def test_run_identifies_defect_type(self, mock_openai_client):
+        mock_parsed = MagicMock()
+        mock_parsed.defect_type = "Undersized Dot"
+        mock_parsed.confidence = 0.86
+        mock_parsed.reasoning = "The user reports dots are smaller than target size."
+
+        mock_message = MagicMock()
+        mock_message.parsed = mock_parsed
+
+        mock_openai_client.beta.chat.completions.parse.return_value = MagicMock(
+            choices=[MagicMock(message=mock_message)]
+        )
+
+        qa_pairs = [
+            {"question": "Is the dispensing amount too large or too small?", "answer": "Too small."},
+            {"question": "Is it continuous or occasional?", "answer": "Continuous."},
+        ]
+
+        result = await text_defect_agent.run(
+            problem_description="Glue dots are smaller than expected.",
+            qa_pairs=qa_pairs,
+        )
+
+        self.assertEqual(result["defect_type"], "Undersized Dot")
+        self.assertEqual(result["confidence"], 0.86)
+        self.assertIn("smaller", result["reasoning"])
+        mock_openai_client.beta.chat.completions.parse.assert_called_once()
+
+        call_args = mock_openai_client.beta.chat.completions.parse.call_args
+        called_messages = call_args.kwargs["messages"]
+        user_message_content = called_messages[1]["content"]
+        self.assertIn("Glue dots are smaller than expected.", user_message_content)
+        self.assertIn("Too small.", user_message_content)
+
+    @patch('ai.subagents.text_defect_agent.client')
+    async def test_run_clamps_confidence_and_falls_back_for_unknown_defect(self, mock_openai_client):
+        mock_parsed = MagicMock()
+        mock_parsed.defect_type = "Unknown Defect"
+        mock_parsed.confidence = 1.4
+        mock_parsed.reasoning = "The symptoms do not map cleanly to the known list."
+
+        mock_message = MagicMock()
+        mock_message.parsed = mock_parsed
+
+        mock_openai_client.beta.chat.completions.parse.return_value = MagicMock(
+            choices=[MagicMock(message=mock_message)]
+        )
+
+        result = await text_defect_agent.run(
+            problem_description="The output shape is strange.",
+            qa_pairs=[],
+        )
+
+        self.assertEqual(result["defect_type"], "Irregular Shape")
+        self.assertEqual(result["confidence"], 1.0)
+
 if __name__ == '__main__':
     unittest.main()
-
