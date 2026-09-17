@@ -111,6 +111,7 @@ Full engine sequence: Define problem → AI asks questions → Analyse symptoms 
 - Accept free-text problem descriptions from the user as input.
 - Support multi-turn, adaptive Q&A (not a fixed static form).
 - Output must include: identified defect, ranked causes with confidence scores, reasoning/explanation, and a recommended action sequence.
+- **Projects (team-proposed feature):** users can create a "Project" scoped to one machine/line/product (similar to Claude's Projects). Each Project keeps its own case history, so cause-ranking/RAG lookups only pull from relevant past cases instead of mixing unrelated machines or materials together. See system-architecture.md for how this fits the data flow.
 
 ### 7.2 Bonus / Stretch Features
 - **Image Recognition:** Upload and analyze a photo of the dispensing result to detect defect type.

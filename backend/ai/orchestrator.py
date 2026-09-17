@@ -37,27 +37,34 @@ def load_prompt(filename: str) -> str:
 async def run_orchestrator(session_id: str, user_message: str, session_state: dict) -> dict:
     """
     Process a user message through the orchestrator.
-
-    Args:
-        session_id: Unique session identifier
-        user_message: The user's latest message
-        session_state: Current session state from Supabase (conversation_history, step, etc.)
-
-    Returns:
-        dict with keys: reply (str), step (str), updated_state (dict)
-
-    TODO:
-    - Load orchestrator system prompt
-    - Determine current step from session_state
-    - Call appropriate subagent(s)
-    - Update session state
-    - Return AI reply
     """
     current_step = session_state.get("step", "questioning")
+    previous_answers = session_state.get("qa_pairs", [])
 
-    # Placeholder logic — replace with actual orchestrator implementation
-    reply = f"[Orchestrator placeholder] Received: '{user_message}' | Current step: {current_step}"
-
+    if current_step == "questioning":
+        # Call the Question Agent
+        result = await run_question_agent(
+            problem_description=user_message,
+            previous_answers=previous_answers
+        )
+        
+        if result.get("enough_info"):
+            # Move to next phase if enough info
+            current_step = "identifying"
+            reply = "I think I have enough information now to identify the defect. Give me a moment to analyze."
+        else:
+            # Format questions out
+            questions = result.get("questions", [])
+            reply = "\n\n".join(questions) if questions else "Could you provide a bit more detail?"
+            
+        return {
+            "reply": reply,
+            "step": current_step,
+            "updated_state": session_state,
+        }
+        
+    # Placeholder for other steps
+    reply = f"[Orchestrator] Received: '{user_message}' | Current step is not wired yet."
     return {
         "reply": reply,
         "step": current_step,

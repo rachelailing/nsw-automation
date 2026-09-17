@@ -139,11 +139,50 @@ Our actual latency comes from the AI thinking (the LLM call itself), not from da
 
 ---
 
+## Team-Proposed Feature: "Projects" (Scoped Troubleshooting Contexts)
+
+Similar in spirit to Claude's Projects — the user can create a Project representing one machine, production line, or product (e.g., "Line 3 – Solder Paste Dispenser"). Everything that happens inside that Project stays scoped to it.
+
+**Why this improves the architecture, not just the UI:**
+- Right now, RAG (see implementation.md Section 2.1) pulls "similar past cases" from *all* history. Without scoping, a solder-paste line's history could get mixed into an adhesive line's cause-ranking — technically working, but noisier and less accurate.
+- Adding a `project_id` to `case_history` and filtering every RAG lookup by it means the Cause Ranking Agent only ever compares against genuinely relevant past cases. This is a small change to the data layer with a real accuracy payoff.
+
+**What changes in the flow:** the user picks (or creates) a Project *before* Step 1 of the Engine Flow begins. Every session, case, and RAG lookup after that point is automatically scoped to that Project's `project_id` — no other part of the Engine Flow needs to change.
+
+**Scope check for the timeline:** this is just an extra table plus one filter added to existing queries — not a full permissions/sharing/file-upload system like Claude's Projects has. Keep it to: create a Project, select a Project, and scope history/RAG to it.
+
+---
+
 ## Data Flow Summary
 
+0. User selects or creates a **Project** (e.g., "Line 3 – Solder Paste Dispenser") — everything below is scoped to this Project's `project_id`.
 1. User (Operator or Technician) opens a session → describes the problem in free text.
 2. Orchestrator runs the **Question Agent** logic → asks up to ~5 adaptive follow-ups.
 3. Once enough info is collected, Orchestrator calls **Text Defect ID** (and **Image Defect ID** in parallel, if a photo was uploaded).
-4. Results merge → Orchestrator calls **Cause Ranking Agent**, which queries Supabase for similar past cases (RAG) and returns ranked causes + confidence scores + reasoning.
+4. Results merge → Orchestrator calls **Cause Ranking Agent**, which queries Supabase for similar past cases **within the same Project** (RAG) and returns ranked causes + confidence scores + reasoning.
 5. Orchestrator calls **Report/Action Plan Agent** → produces the checklist and final report.
-6. The completed case (problem, causes, solution, outcome) is written back to Supabase, growing the case-history database for future RAG lookups.
+6. The completed case (problem, causes, solution, outcome, `project_id`) is written back to Supabase, growing that Project's case-history database for future RAG lookups.
+
+---
+
+## Resources — For Teammates Catching Up
+
+If you want to see where the reasoning in this doc came from, here's what to read, grouped by topic:
+
+**Multi-agent architecture (why we picked Subagents):**
+- [Choosing the Right Multi-Agent Architecture — LangChain](https://www.langchain.com/blog/choosing-the-right-multi-agent-architecture) — the article that compares Subagents, Router, Skills, and Handoffs patterns with real token/latency numbers. This is where the "Subagents wins on multi-domain queries" numbers came from.
+
+**MCP, A2A, and why we're not using either as a formal protocol:**
+- [Introducing the Model Context Protocol — Anthropic](https://www.anthropic.com/news/model-context-protocol) — Anthropic's own announcement of MCP (connects an AI to tools/data).
+- [modelcontextprotocol.io](https://modelcontextprotocol.io) — the official MCP spec/docs site, if you want more technical depth.
+- [Implementing MCP in Multi-Agent AI Platforms — ML Journey](https://mljourney.com/implementing-mcp-in-multi-agent-ai-platforms/) — explains the Direct Connection, Centralized Gateway, and Hierarchical Orchestration patterns. This is where the Centralized Gateway trade-offs (and its single-point-of-failure risk) came from.
+- [a2a-protocol.org](https://a2a-protocol.org) — official site for Google's Agent2Agent protocol (agent-to-agent, cross-vendor communication — not something we need here).
+- **Note on "CALM":** a Medium article claimed Anthropic has a protocol called CALM. That's not accurate — the real CALM (linked below) is an unrelated FINOS/Morgan Stanley tool for documenting software architecture as code, not an agent communication protocol, and it isn't from Anthropic. Flagging this so nobody re-researches a dead end.
+  - [calm.finos.org](https://calm.finos.org/introduction/what-is-calm) — the real CALM, for reference only.
+
+**RAG / "learning database" implementation:**
+- [Supabase MCP Server docs](https://supabase.com/docs/guides/getting-started/mcp) — if we ever want the optional MCP shortcut for our Supabase queries.
+- [Supabase pgvector guide](https://supabase.com/docs/guides/database/extensions/pgvector) — how to set up vector/semantic similarity search (Option B in implementation.md Section 2.1), if we upgrade past keyword matching.
+
+**Why we're not fine-tuning a model:**
+- [OpenAI fine-tuning wind-down announcement](https://openai.com/index/introducing-improvements-to-the-fine-tuning-api-and-expanding-our-custom-models-program/) — see the "Update on May 8, 2026" note partway down the page; this is why fine-tuning isn't a realistic option for new projects right now, on top of it not fitting our timeline anyway.

@@ -24,20 +24,33 @@ class ChatResponse(BaseModel):
     step: str  # e.g. "questioning", "identifying", "ranking", "reporting", "done"
 
 
+from ai.orchestrator import run_orchestrator
+import traceback
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
     Send a user message and get the orchestrator's response.
-
-    TODO:
-    - Load session state from Supabase
-    - Pass to orchestrator.run()
-    - Save updated session state
-    - Return AI reply
     """
-    # Placeholder — replace with orchestrator call
-    return ChatResponse(
-        session_id=request.session_id,
-        reply="[Placeholder] Orchestrator not yet implemented.",
-        step="questioning",
-    )
+    try:
+        # For now, we mock the session state to just test the question agent directly
+        session_state = {"step": "questioning", "qa_pairs": []}
+        
+        result = await run_orchestrator(
+            session_id=request.session_id,
+            user_message=request.message,
+            session_state=session_state
+        )
+        
+        return ChatResponse(
+            session_id=request.session_id,
+            reply=result["reply"],
+            step=result["step"],
+        )
+    except Exception as e:
+        print(f"Error calling orchestrator: {traceback.format_exc()}")
+        return ChatResponse(
+            session_id=request.session_id,
+            reply=f"Backend Error: {str(e)}",
+            step="error",
+        )
