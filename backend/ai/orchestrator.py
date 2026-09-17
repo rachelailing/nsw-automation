@@ -39,23 +39,60 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
     Process a user message through the orchestrator.
     """
     current_step = session_state.get("step", "questioning")
-    previous_answers = session_state.get("qa_pairs", [])
+    qa_pairs = session_state.get("qa_pairs", [])
+    pending_questions = session_state.get("pending_questions", [])
+    problem_description = session_state.get("problem_description", "")
 
     if current_step == "questioning":
+        if not problem_description:
+            problem_description = user_message
+            session_state["problem_description"] = problem_description
+        elif pending_questions:
+            answered_question = pending_questions.pop(0)
+            qa_pairs.append({
+                "question": answered_question,
+                "answer": user_message,
+            })
+            session_state["qa_pairs"] = qa_pairs
+            session_state["pending_questions"] = pending_questions
+
+            if pending_questions:
+                return {
+                    "reply": pending_questions[0],
+                    "step": "questioning",
+                    "updated_state": session_state,
+                }
+
         # Call the Question Agent
         result = await run_question_agent(
-            problem_description=user_message,
-            previous_answers=previous_answers
+            problem_description=problem_description,
+            previous_answers=qa_pairs
         )
         
         if result.get("enough_info"):
-            # Move to next phase if enough info
-            current_step = "identifying"
-            reply = "I think I have enough information now to identify the defect. Give me a moment to analyze."
+            defect_result = await run_text_defect_agent(
+                problem_description=problem_description,
+                qa_pairs=qa_pairs,
+            )
+
+            session_state["defect_result"] = defect_result
+            session_state["defect_type"] = defect_result.get("defect_type")
+            session_state["step"] = "ranking"
+
+            reply = (
+                "I have enough information to identify the likely defect.\n\n"
+                f"Defect type: {defect_result.get('defect_type')}\n"
+                f"Confidence: {defect_result.get('confidence')}\n\n"
+                f"Reasoning: {defect_result.get('reasoning')}\n\n"
+                "Next, this should flow into cause ranking."
+            )
+            current_step = "ranking"
         else:
             # Format questions out
             questions = result.get("questions", [])
-            reply = "\n\n".join(questions) if questions else "Could you provide a bit more detail?"
+            session_state["pending_questions"] = questions
+            reply = questions[0] if questions else "Could you provide a bit more detail?"
+            current_step = "questioning"
             
         return {
             "reply": reply,

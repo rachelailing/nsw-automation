@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter()
+SESSION_STATES: dict[str, dict] = {}
 
 
 class ChatRequest(BaseModel):
@@ -33,14 +34,23 @@ async def chat(request: ChatRequest):
     Send a user message and get the orchestrator's response.
     """
     try:
-        # For now, we mock the session state to just test the question agent directly
-        session_state = {"step": "questioning", "qa_pairs": []}
+        session_state = SESSION_STATES.setdefault(
+            request.session_id,
+            {
+                "step": "questioning",
+                "problem_description": "",
+                "qa_pairs": [],
+                "pending_questions": [],
+            },
+        )
         
         result = await run_orchestrator(
             session_id=request.session_id,
             user_message=request.message,
             session_state=session_state
         )
+
+        SESSION_STATES[request.session_id] = result["updated_state"]
         
         return ChatResponse(
             session_id=request.session_id,
