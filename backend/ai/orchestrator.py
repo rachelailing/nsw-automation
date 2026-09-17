@@ -208,6 +208,56 @@ def format_cause_ranking_reply(ranking_result: dict) -> str:
     return "\n".join(lines)
 
 
+def build_report_problem_context(session_state: dict) -> str:
+    problem_description = session_state.get("problem_description") or ""
+    defect_result = session_state.get("defect_result") or {}
+    image_result = session_state.get("image_result") or {}
+
+    parts = []
+    if has_meaningful_text(problem_description):
+        parts.append(f"Problem description: {problem_description}")
+
+    if defect_result:
+        parts.append(
+            "Defect identification:\n"
+            f"- Defect type: {defect_result.get('defect_type')}\n"
+            f"- Confidence: {defect_result.get('confidence')}\n"
+            f"- Source: {defect_result.get('source')}\n"
+            f"- Reasoning: {defect_result.get('reasoning')}"
+        )
+
+    if image_result:
+        parts.append(format_image_context(image_result))
+
+    return "\n\n".join(parts) if parts else "No problem description was provided."
+
+
+def format_report_reply(report: dict) -> str:
+    lines = [
+        "Troubleshooting report generated.",
+        "",
+        "Summary:",
+        report.get("summary", ""),
+    ]
+
+    action_plan = report.get("action_plan") or []
+    if action_plan:
+        lines.extend(["", "Action plan:"])
+        for step in action_plan:
+            lines.append(
+                f"{step.get('step_number')}. [{step.get('priority')}] {step.get('action')}"
+            )
+            lines.append(f"   Why: {step.get('rationale')}")
+
+    recommendations = report.get("recommendations") or []
+    if recommendations:
+        lines.extend(["", "Preventive recommendations:"])
+        for recommendation in recommendations:
+            lines.append(f"- {recommendation}")
+
+    return "\n".join(lines)
+
+
 async def run_orchestrator(session_id: str, user_message: str, session_state: dict) -> dict:
     """
     Process a user message through the orchestrator.
@@ -336,6 +386,33 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
         return {
             "reply": format_cause_ranking_reply(ranking_result),
             "step": "reporting",
+            "updated_state": session_state,
+        }
+
+    if current_step == "reporting":
+        defect_type = session_state.get("defect_type")
+        causes = session_state.get("causes") or []
+
+        if not defect_type or not causes:
+            return {
+                "reply": "I need the defect type and ranked causes before generating the report.",
+                "step": "ranking",
+                "updated_state": {**session_state, "step": "ranking"},
+            }
+
+        report = await run_report_agent(
+            defect_type=defect_type,
+            causes=causes,
+            problem_description=build_report_problem_context(session_state),
+            qa_pairs=qa_pairs,
+        )
+
+        session_state["report"] = report
+        session_state["step"] = "done"
+
+        return {
+            "reply": format_report_reply(report),
+            "step": "done",
             "updated_state": session_state,
         }
         

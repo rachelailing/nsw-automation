@@ -263,6 +263,84 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["step"], "questioning")
         self.assertIn("identify the defect type", result["reply"])
 
+    @patch("ai.orchestrator.run_report_agent", new_callable=AsyncMock)
+    async def test_reporting_step_calls_report_agent_and_marks_done(self, mock_report_agent):
+        mock_report_agent.return_value = {
+            "summary": "Undersized Dot was identified; low pressure is the top suspected cause.",
+            "action_plan": [
+                {
+                    "step_number": 1,
+                    "action": "Check dispensing pressure.",
+                    "rationale": "Low pressure is ranked as the most likely cause.",
+                    "priority": "high",
+                }
+            ],
+            "recommendations": ["Log validated pressure settings after setup."],
+        }
+
+        session_state = {
+            "step": "reporting",
+            "problem_description": "The dots are too small.",
+            "qa_pairs": [
+                {"question": "Is it continuous?", "answer": "Yes, every cycle."}
+            ],
+            "defect_type": "Undersized Dot",
+            "defect_result": {
+                "defect_type": "Undersized Dot",
+                "confidence": 0.88,
+                "source": "text",
+                "reasoning": "The answers point to insufficient material.",
+            },
+            "causes": [
+                {
+                    "rank": 1,
+                    "cause": "Dispensing pressure is too low",
+                    "category": "Dispensing Parameters",
+                    "confidence": 0.6,
+                    "reasoning": "The defect is continuous and dots are undersized.",
+                }
+            ],
+        }
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message="Generate report",
+            session_state=session_state,
+        )
+
+        self.assertEqual(result["step"], "done")
+        self.assertEqual(result["updated_state"]["step"], "done")
+        self.assertIn("Troubleshooting report generated", result["reply"])
+        self.assertIn("Check dispensing pressure", result["reply"])
+        self.assertEqual(
+            result["updated_state"]["report"]["summary"],
+            "Undersized Dot was identified; low pressure is the top suspected cause.",
+        )
+
+        call_args = mock_report_agent.call_args
+        self.assertEqual(call_args.kwargs["defect_type"], "Undersized Dot")
+        self.assertEqual(call_args.kwargs["causes"], session_state["causes"])
+        self.assertIn("Defect identification", call_args.kwargs["problem_description"])
+        self.assertEqual(call_args.kwargs["qa_pairs"], session_state["qa_pairs"])
+
+    async def test_reporting_step_without_required_data_returns_to_ranking(self):
+        session_state = {
+            "step": "reporting",
+            "problem_description": "The dots are too small.",
+            "qa_pairs": [],
+            "defect_type": "Undersized Dot",
+            "causes": [],
+        }
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message="Generate report",
+            session_state=session_state,
+        )
+
+        self.assertEqual(result["step"], "ranking")
+        self.assertIn("ranked causes", result["reply"])
+
 
 if __name__ == "__main__":
     unittest.main()

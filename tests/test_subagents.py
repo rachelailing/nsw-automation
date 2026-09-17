@@ -10,7 +10,7 @@ os.environ["OPENAI_API_KEY"] = "dummy-key-for-testing"
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 
-from ai.subagents import question_agent, text_defect_agent, image_defect_agent, cause_ranking_agent
+from ai.subagents import question_agent, text_defect_agent, image_defect_agent, cause_ranking_agent, report_agent
 
 class TestQuestionAgent(unittest.IsolatedAsyncioTestCase):
 
@@ -254,6 +254,69 @@ class TestCauseRankingAgent(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["rag_context_used"])
         self.assertEqual(result["causes"][0]["category"], "Equipment Condition")
         self.assertEqual(result["causes"][0]["confidence"], 1.0)
+
+
+class TestReportAgent(unittest.IsolatedAsyncioTestCase):
+
+    @patch('ai.subagents.report_agent.client')
+    async def test_run_generates_report(self, mock_openai_client):
+        step_1 = MagicMock()
+        step_1.step_number = 10
+        step_1.action = "Check and increase dispensing pressure."
+        step_1.rationale = "Low pressure is the top-ranked cause for undersized dots."
+        step_1.priority = "HIGH"
+
+        step_2 = MagicMock()
+        step_2.step_number = 20
+        step_2.action = "Inspect the nozzle for partial clogging."
+        step_2.rationale = "A partial clog can restrict flow."
+        step_2.priority = "urgent"
+
+        mock_parsed = MagicMock()
+        mock_parsed.summary = "Undersized Dot was identified; low pressure is the most likely cause."
+        mock_parsed.action_plan = [step_1, step_2]
+        mock_parsed.recommendations = [
+            "Log pressure settings after each setup.",
+            "Schedule nozzle inspection.",
+            "Track material shelf life.",
+            "Extra recommendation should be trimmed.",
+        ]
+
+        mock_message = MagicMock()
+        mock_message.parsed = mock_parsed
+
+        mock_openai_client.beta.chat.completions.parse.return_value = MagicMock(
+            choices=[MagicMock(message=mock_message)]
+        )
+
+        causes = [
+            {
+                "rank": 1,
+                "cause": "Dispensing pressure is too low",
+                "category": "Dispensing Parameters",
+                "confidence": 0.6,
+                "reasoning": "Dots are consistently undersized.",
+            }
+        ]
+
+        result = await report_agent.run(
+            defect_type="Undersized Dot",
+            causes=causes,
+            problem_description="Glue dots are too small.",
+            qa_pairs=[{"question": "Is it continuous?", "answer": "Yes."}],
+        )
+
+        self.assertIn("Undersized Dot", result["summary"])
+        self.assertEqual(result["action_plan"][0]["step_number"], 1)
+        self.assertEqual(result["action_plan"][0]["priority"], "high")
+        self.assertEqual(result["action_plan"][1]["priority"], "medium")
+        self.assertEqual(len(result["recommendations"]), 3)
+
+        call_args = mock_openai_client.beta.chat.completions.parse.call_args
+        called_messages = call_args.kwargs["messages"]
+        self.assertIn("Glue dots are too small.", called_messages[1]["content"])
+        self.assertIn("Dispensing pressure is too low", called_messages[1]["content"])
+        self.assertIn("Yes.", called_messages[1]["content"])
 
 if __name__ == '__main__':
     unittest.main()
