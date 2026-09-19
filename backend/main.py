@@ -31,12 +31,10 @@ app.add_middleware(
 # ------------------------------------------------------------------
 from api.chat import router as chat_router
 from api.diagnose import router as diagnose_router
-from api.upload_image import router as upload_image_router
 from api.report import router as report_router
 
 app.include_router(chat_router, prefix="/api", tags=["Chat"])
 app.include_router(diagnose_router, prefix="/api", tags=["Diagnose"])
-app.include_router(upload_image_router, prefix="/api", tags=["Image Upload"])
 app.include_router(report_router, prefix="/api", tags=["Report"])
 
 

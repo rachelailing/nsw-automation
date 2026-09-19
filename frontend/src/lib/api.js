@@ -33,22 +33,6 @@ export async function runDiagnosis(sessionId) {
 }
 
 /**
- * Upload a dispensing defect image.
- */
-export async function uploadImage(sessionId, file) {
-  const formData = new FormData();
-  formData.append("session_id", sessionId);
-  formData.append("file", file);
-
-  const res = await fetch(`${API_BASE}/api/upload-image`, {
-    method: "POST",
-    body: formData,
-  });
-  if (!res.ok) throw new Error(`Upload request failed: ${res.status}`);
-  return res.json();
-}
-
-/**
  * Retrieve the report for a completed session.
  */
 export async function getReport(sessionId) {

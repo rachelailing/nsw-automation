@@ -7,7 +7,6 @@
 import { useChat } from "@/hooks/useChat";
 import ChatWindow from "@/components/ChatWindow";
 import ChatInput from "@/components/ChatInput";
-import ImageUpload from "@/components/ImageUpload";
 import styles from "./page.module.css";
 
 export default function Home() {
@@ -25,8 +24,6 @@ export default function Home() {
         <p className={styles.tagline}>
           AI-powered dispensing defect troubleshooter
         </p>
-
-        <ImageUpload sessionId={sessionId} />
 
         <div className={styles.sessionInfo}>
           <small>Session: {sessionId.slice(0, 8)}...</small>
