@@ -56,12 +56,13 @@ The backend exposes chat, diagnosis, and report endpoints. It is the trusted bou
 
 ### 3.3 Diagnostic workflow runtime
 
-The orchestrator is a persisted state machine. The current workflow uses four controlled stages validated by the n8n prototype:
+The orchestrator is a persisted state machine. The current workflow uses five short, controlled stages based on the n8n prototype:
 
 1. Material being dispensed.
 2. Observed amount or measured diameter.
-3. Frequency and recent parameter changes.
-4. One location or multiple locations.
+3. Frequency of occurrence.
+4. Recent parameter or equipment changes.
+5. One location or multiple locations.
 
 After stage 2, a measured diameter is checked immediately against the reference table. After stage 4, the workflow automatically runs defect identification, cause ranking, action-plan generation, and case-history persistence.
 
@@ -198,7 +199,7 @@ The first implementation should be a form-based workflow editor backed by the sa
 
 - Next.js chat interface and FastAPI backend.
 - Persisted Supabase sessions.
-- Four-stage n8n-compatible diagnostic conversation.
+- Five-stage, one-question-at-a-time diagnostic conversation.
 - Immediate diameter threshold validation.
 - Text defect classification, cause ranking, and three-step action plan.
 - Similar-case retrieval and completed-case persistence.

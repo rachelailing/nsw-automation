@@ -15,6 +15,7 @@ Flow:
 """
 
 import os
+import re
 from openai import OpenAI
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -25,6 +26,19 @@ from ai.subagents.text_defect_agent import run as run_text_defect_agent
 from ai.subagents.image_defect_agent import run as run_image_defect_agent
 from ai.subagents.cause_ranking_agent import run as run_cause_ranking_agent
 from ai.subagents.report_agent import run as run_report_agent
+
+
+
+def parse_fixed_response(message: str) -> bool | None:
+    value = message.strip().lower()
+
+    if value in {"no", "n", "not fixed", "did not work", "not resolved"}:
+        return False
+
+    if value in {"yes", "y", "fixed", "it worked", "resolved"}:
+        return True
+
+    return None
 
 
 def load_prompt(filename: str) -> str:
@@ -102,9 +116,12 @@ DIAMETER_QUESTION = (
     "Is the dispensing amount or diameter currently coming out too large, too small, "
     "or having some other issue? Also, what is the exact measured diameter if you have it?"
 )
-FREQUENCY_AND_CHANGES_QUESTION = (
-    "Is this defect happening continuously on every part, or is it occasional and random? "
-    "Also, have any parameters such as pressure, dispensing time, or nozzle size recently changed?"
+FREQUENCY_QUESTION = (
+    "Is this defect happening continuously on every part, or is it occasional and random?"
+)
+CHANGES_QUESTION = (
+    "Have any parameters or equipment recently changed, such as pressure, dispensing time, "
+    "nozzle size, material batch, or the dispensing machine?"
 )
 LOCATION_QUESTION = (
     "Got it. Just one last detail to make sure I have the full picture: is this happening "
@@ -116,6 +133,132 @@ def has_meaningful_text(value: str | None) -> bool:
     if not value:
         return False
     return value.strip().lower() not in PHOTO_ONLY_MESSAGES
+
+
+def normalize_answer(value: str) -> str:
+    """Normalize an answer for duplicate detection."""
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def validate_diagnostic_answer(
+    stage: str,
+    answer: str,
+    qa_pairs: list[dict],
+) -> str | None:
+    """Return a clarification message when an answer does not fit its stage."""
+    normalized = normalize_answer(answer)
+    previous_answers = {
+        normalize_answer(qa.get("answer", ""))
+        for qa in qa_pairs
+        if qa.get("answer")
+    }
+
+    prompts = {
+        "material": "Please tell me the material being dispensed, such as solder paste, epoxy, or underfill.",
+        "diameter": DIAMETER_QUESTION,
+        "frequency": FREQUENCY_QUESTION,
+        "changes": CHANGES_QUESTION,
+        "location": LOCATION_QUESTION,
+    }
+
+    if not normalized:
+        return prompts.get(stage, "Could you clarify your answer?")
+
+    if normalized in previous_answers:
+        return (
+            "That appears to repeat your previous answer, so I have not recorded it "
+            f"for this step.\n\n{prompts.get(stage, 'Could you clarify your answer?')}"
+        )
+
+    if stage == "material":
+        if normalized in {"hi", "hello", "hey", "help"}:
+            return prompts[stage]
+
+    if stage == "diameter":
+        has_measurement = bool(
+            re.search(
+                r"\d+(?:\.\d+)?\s*(?:mm|micron|um)\b",
+                answer.lower(),
+            )
+        )
+        has_defect_description = any(
+            phrase in normalized
+            for phrase in (
+                "too large",
+                "too small",
+                "oversized",
+                "undersized",
+                "missing",
+                "irregular",
+                "spreading",
+            )
+        )
+        if not has_measurement and not has_defect_description:
+            return prompts[stage]
+
+    if stage == "frequency":
+        has_frequency = any(
+            phrase in normalized
+            for phrase in (
+                "continuous",
+                "continuously",
+                "every part",
+                "every cycle",
+                "occasional",
+                "occasionally",
+                "intermittent",
+                "random",
+                "sometimes",
+            )
+        )
+        if not has_frequency:
+            return (
+                "I could not tell how often the defect occurs. "
+                "Please answer continuous, occasional, or intermittent."
+            )
+
+    if stage == "changes":
+        has_change_context = any(
+            phrase in normalized
+            for phrase in (
+                "changed",
+                "change",
+                "unchanged",
+                "no parameter",
+                "did not change",
+                "didnt change",
+                "pressure",
+                "dispensing time",
+                "nozzle",
+                "new machine",
+            )
+        )
+        if not has_change_context:
+            return (
+                "I could not tell whether anything changed. Please name the changed setting "
+                "or equipment, or reply that there were no changes."
+            )
+
+    if stage == "location":
+        has_location = any(
+            phrase in normalized
+            for phrase in (
+                "one location",
+                "single location",
+                "specific location",
+                "multiple",
+                "across",
+                "all locations",
+                "everywhere",
+            )
+        )
+        if not has_location:
+            return (
+                "I could not determine the affected location from that answer.\n\n"
+                f"{prompts[stage]}"
+            )
+
+    return None
 
 
 def format_image_context(image_result: dict | None) -> str:
@@ -425,7 +568,7 @@ async def generate_report_and_save_case(
     )
 
     session_state["report"] = report
-    session_state["step"] = "done"
+    session_state["step"] = "awaiting_feedback"
 
     if not session_state.get("case_history_saved"):
         saved_case = await save_completed_case(
@@ -480,6 +623,21 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
             }
 
         diagnostic_stage = session_state.get("diagnostic_stage", "material")
+        if diagnostic_stage == "frequency_and_changes":
+            diagnostic_stage = "frequency"
+            session_state["diagnostic_stage"] = diagnostic_stage
+
+        validation_message = validate_diagnostic_answer(
+            diagnostic_stage,
+            user_message,
+            qa_pairs,
+        )
+        if validation_message:
+            return {
+                "reply": validation_message,
+                "step": "questioning",
+                "updated_state": session_state,
+            }
 
         if diagnostic_stage == "material":
             qa_pairs.append({"question": MATERIAL_QUESTION, "answer": user_message})
@@ -501,17 +659,30 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
             if threshold_context:
                 session_state["reference_threshold_context"] = threshold_context
                 session_state["reference_threshold_evaluation"] = threshold_evaluation
-            session_state["diagnostic_stage"] = "frequency_and_changes"
+            session_state["diagnostic_stage"] = "frequency"
             feedback = format_diameter_threshold_feedback(threshold_evaluation)
             return {
-                "reply": f"{feedback}\n\n{FREQUENCY_AND_CHANGES_QUESTION}",
+                "reply": f"{feedback}\n\n{FREQUENCY_QUESTION}",
                 "step": "questioning",
                 "updated_state": session_state,
             }
 
-        if diagnostic_stage == "frequency_and_changes":
+        if diagnostic_stage == "frequency":
             qa_pairs.append({
-                "question": FREQUENCY_AND_CHANGES_QUESTION,
+                "question": FREQUENCY_QUESTION,
+                "answer": user_message,
+            })
+            session_state["qa_pairs"] = qa_pairs
+            session_state["diagnostic_stage"] = "changes"
+            return {
+                "reply": CHANGES_QUESTION,
+                "step": "questioning",
+                "updated_state": session_state,
+            }
+
+        if diagnostic_stage == "changes":
+            qa_pairs.append({
+                "question": CHANGES_QUESTION,
                 "answer": user_message,
             })
             session_state["qa_pairs"] = qa_pairs
@@ -585,7 +756,7 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
             await rank_causes(session_state, qa_pairs)
             await generate_report_and_save_case(session_id, session_state, qa_pairs)
             reply = format_completed_diagnosis_reply(session_state)
-            current_step = "done"
+            current_step = "awaiting_feedback"
         else:
             # Format questions out
             questions = result.get("questions", [])
@@ -636,7 +807,59 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
 
         return {
             "reply": format_report_reply(report),
-            "step": "done",
+            "step": "awaiting_feedback",
+            "updated_state": session_state,
+        }
+    if current_step == "awaiting_feedback":
+        fixed = parse_fixed_response(user_message)
+
+        if fixed is None:
+            return {
+                "reply": "Please answer yes or no: did the recommended action fix the issue?",
+                "step": "awaiting_feedback",
+                "updated_state": session_state,
+            }
+
+        session_state["feedback_fixed"] = fixed
+        session_state["step"] = "awaiting_feedback_action"
+
+        return {
+            "reply": "Which recommended action did you try?",
+            "step": "awaiting_feedback_action",
+            "updated_state": session_state,
+        }
+
+    if current_step == "awaiting_feedback_action":
+        session_state["feedback_action"] = user_message.strip()
+        session_state["step"] = "awaiting_feedback_cause"
+
+        return {
+            "reply": "What root cause did this confirm? Say 'unknown' if it is not confirmed yet.",
+            "step": "awaiting_feedback_cause",
+            "updated_state": session_state,
+        }
+
+    if current_step == "awaiting_feedback_cause":
+        from db.case_feedback import save_case_feedback
+
+        cause = user_message.strip()
+        if cause.lower() in {"unknown", "none", "not sure"}:
+            cause = None
+
+        await save_case_feedback(
+            case_id=session_state["case_history_id"],
+            session_id=session_id,
+            fixed=session_state["feedback_fixed"],
+            attempted_action=session_state["feedback_action"],
+            confirmed_cause=cause,
+        )
+
+        session_state["feedback_saved"] = True
+        session_state["step"] = "closed"
+
+        return {
+            "reply": "Thank you. The outcome has been saved for future troubleshooting cases.",
+            "step": "closed",
             "updated_state": session_state,
         }
         

@@ -87,8 +87,95 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
         self.assertIn("continuously on every part", result["reply"])
         self.assertEqual(
             result["updated_state"]["diagnostic_stage"],
-            "frequency_and_changes",
+            "frequency",
         )
+
+    async def test_repeated_answer_is_not_accepted_for_next_stage(self):
+        repeated_answer = "It is too large, around 0.95 mm."
+        session_state = {
+            "step": "questioning",
+            "problem_description": "Hi",
+            "qa_pairs": [
+                {"question": "What material?", "answer": "Solder paste"},
+                {"question": "What diameter?", "answer": repeated_answer},
+            ],
+            "pending_questions": [],
+            "diagnostic_stage": "frequency",
+            "workflow_started": True,
+        }
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message=repeated_answer,
+            session_state=session_state,
+        )
+
+        self.assertEqual(result["step"], "questioning")
+        self.assertIn("repeat your previous answer", result["reply"])
+        self.assertIn("continuously on every part", result["reply"])
+        self.assertEqual(
+            result["updated_state"]["diagnostic_stage"],
+            "frequency",
+        )
+        self.assertEqual(len(result["updated_state"]["qa_pairs"]), 2)
+
+    async def test_irrelevant_frequency_answer_requests_clarification(self):
+        session_state = {
+            "step": "questioning",
+            "problem_description": "Hi",
+            "qa_pairs": [],
+            "pending_questions": [],
+            "diagnostic_stage": "frequency",
+            "workflow_started": True,
+        }
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message="The dot is 0.95 mm.",
+            session_state=session_state,
+        )
+
+        self.assertIn("could not tell how often", result["reply"])
+        self.assertEqual(
+            result["updated_state"]["diagnostic_stage"],
+            "frequency",
+        )
+        self.assertEqual(result["updated_state"]["qa_pairs"], [])
+
+    async def test_frequency_and_changes_are_asked_separately(self):
+        session_state = {
+            "step": "questioning",
+            "problem_description": "Hi",
+            "qa_pairs": [],
+            "pending_questions": [],
+            "diagnostic_stage": "frequency",
+            "workflow_started": True,
+        }
+
+        frequency_result = await run_orchestrator(
+            session_id="session-1",
+            user_message="It happens continuously on every part.",
+            session_state=session_state,
+        )
+
+        self.assertEqual(
+            frequency_result["updated_state"]["diagnostic_stage"],
+            "changes",
+        )
+        self.assertIn("parameters or equipment", frequency_result["reply"])
+        self.assertNotIn("one specific location", frequency_result["reply"])
+
+        changes_result = await run_orchestrator(
+            session_id="session-1",
+            user_message="No parameters changed, but this is a new machine.",
+            session_state=frequency_result["updated_state"],
+        )
+
+        self.assertEqual(
+            changes_result["updated_state"]["diagnostic_stage"],
+            "location",
+        )
+        self.assertIn("one specific location", changes_result["reply"])
 
     @patch("ai.orchestrator.generate_report_and_save_case", new_callable=AsyncMock)
     @patch("ai.orchestrator.rank_causes", new_callable=AsyncMock)
@@ -130,7 +217,7 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
                 ],
                 "recommendations": [],
             }
-            state["step"] = "done"
+            state["step"] = "awaiting_feedback"
             state["case_history_saved"] = True
             state["case_history_id"] = 123
             return state["report"]
@@ -155,20 +242,23 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
 
         result = await run_orchestrator(
             session_id="session-1",
-            user_message="It happens continuously.",
+            user_message="It happens across multiple locations.",
             session_state=session_state,
         )
 
-        self.assertEqual(result["step"], "done")
+        self.assertEqual(result["step"], "awaiting_feedback")
         self.assertIn("Undersized Dot", result["reply"])
         self.assertIn("Dispensing pressure is too low", result["reply"])
         self.assertIn("Did this fix the issue?", result["reply"])
         self.assertEqual(result["updated_state"]["defect_type"], "Undersized Dot")
-        self.assertEqual(result["updated_state"]["step"], "done")
+        self.assertEqual(result["updated_state"]["step"], "awaiting_feedback")
         mock_text_defect_agent.assert_awaited_once()
         text_agent_call = mock_text_defect_agent.call_args.kwargs
         self.assertEqual(text_agent_call["problem_description"], "The dots are too small.")
-        self.assertEqual(text_agent_call["qa_pairs"][-1]["answer"], "It happens continuously.")
+        self.assertEqual(
+            text_agent_call["qa_pairs"][-1]["answer"],
+            "It happens across multiple locations.",
+        )
         mock_rank_causes.assert_awaited_once()
         mock_generate_report.assert_awaited_once_with(
             "session-1",
@@ -224,7 +314,7 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
                 ],
                 "recommendations": [],
             }
-            state["step"] = "done"
+            state["step"] = "awaiting_feedback"
             return state["report"]
 
         mock_rank_causes.side_effect = rank_causes_side_effect
@@ -243,11 +333,11 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
 
         result = await run_orchestrator(
             session_id="session-1",
-            user_message="Nozzle was recently changed.",
+            user_message="It happens across multiple locations after the nozzle change.",
             session_state=session_state,
         )
 
-        self.assertEqual(result["step"], "done")
+        self.assertEqual(result["step"], "awaiting_feedback")
         self.assertIn("Irregular Shape", result["reply"])
         self.assertIn("The replacement nozzle is misaligned", result["reply"])
         self.assertEqual(result["updated_state"]["defect_result"]["source"], "text_and_image")
@@ -421,8 +511,8 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
             session_state=session_state,
         )
 
-        self.assertEqual(result["step"], "done")
-        self.assertEqual(result["updated_state"]["step"], "done")
+        self.assertEqual(result["step"], "awaiting_feedback")
+        self.assertEqual(result["updated_state"]["step"], "awaiting_feedback")
         self.assertIn("Troubleshooting report generated", result["reply"])
         self.assertIn("Check dispensing pressure", result["reply"])
         self.assertEqual(
@@ -489,7 +579,7 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
             session_state=session_state,
         )
 
-        self.assertEqual(result["step"], "done")
+        self.assertEqual(result["step"], "awaiting_feedback")
         self.assertEqual(result["updated_state"]["case_history_id"], 123)
         mock_save_completed_case.assert_not_awaited()
 

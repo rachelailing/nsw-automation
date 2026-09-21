@@ -18,7 +18,8 @@ The website now reproduces the core n8n workflow:
 Material
   -> amount or measured diameter
   -> immediate threshold result
-  -> frequency plus recent changes
+  -> frequency
+  -> recent parameter or equipment changes
   -> affected location(s)
   -> defect classification
   -> cause ranking
@@ -42,7 +43,7 @@ Material
 
 ### Diagnostic runtime
 
-- `backend/ai/orchestrator.py`: four-stage state machine and subagent orchestration.
+- `backend/ai/orchestrator.py`: five-stage state machine and subagent orchestration.
 - `backend/db/reference_thresholds.py`: numeric extraction, row selection, and deterministic comparisons.
 - `backend/ai/subagents/text_defect_agent.py`: defect classification.
 - `backend/ai/subagents/cause_ranking_agent.py`: ranked cause generation with similar cases.
@@ -309,7 +310,7 @@ Maintain a versioned set of expert-reviewed scenarios containing expected thresh
 The next release is complete when:
 
 - A user can start a fresh case from the UI.
-- The four-stage diagnosis remains stable.
+- The five-stage, one-question-at-a-time diagnosis remains stable.
 - The final question accepts and stores a real outcome.
 - Successful and unsuccessful actions are distinguishable.
 - A completed case records its evidence and configuration versions.

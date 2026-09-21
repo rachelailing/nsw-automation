@@ -206,7 +206,7 @@ Synthetic demonstration data must be labeled as synthetic. It must not be presen
 | Capability | Status |
 |---|---|
 | Web chat and API | Implemented |
-| Four-stage diagnostic flow | Implemented |
+| Five-stage, one-question-at-a-time diagnostic flow | Implemented |
 | Session persistence | Implemented |
 | Diameter threshold comparison | Implemented |
 | Defect identification | Implemented |
@@ -227,7 +227,7 @@ Given a Solder Paste Knowledge Pack with a diameter range of `0.40-0.60 mm`:
 
 1. User reports solder paste with a measured diameter of `0.95 mm`.
 2. System states that `0.95 mm` is above the `0.60 mm` maximum.
-3. System asks only for frequency, recent changes, and location.
+3. System asks separately for frequency, recent changes, and location.
 4. User reports a continuous issue across multiple locations on a new machine.
 5. System returns an oversized defect with confidence, an evidence-based probable cause, exactly three actions, and asks whether the issue was fixed.
 6. The completed case is saved once.
