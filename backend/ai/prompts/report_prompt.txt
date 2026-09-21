@@ -40,4 +40,4 @@ Return a JSON object:
 - Write in clear, non-jargon language that a technician can follow immediately.
 - Action plan should be concrete — "Check nozzle tip for dried material" not "Investigate nozzle issues."
 - Keep the summary under 3 sentences.
-- Provide 4–8 action steps and 2–3 recommendations.
+- Provide exactly 3 action steps and 2–3 recommendations.

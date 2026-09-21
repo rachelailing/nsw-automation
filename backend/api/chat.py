@@ -7,11 +7,14 @@ latest message; the orchestrator decides what to do next (ask follow-up
 questions, call a subagent, etc.) and returns the AI's reply.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
+import traceback
+
+from ai.orchestrator import run_orchestrator
+from db.sessions import get_or_create_session_state, save_session_state
 
 router = APIRouter()
-SESSION_STATES: dict[str, dict] = {}
 
 
 class ChatRequest(BaseModel):
@@ -24,25 +27,13 @@ class ChatResponse(BaseModel):
     reply: str
     step: str  # e.g. "questioning", "identifying", "ranking", "reporting", "done"
 
-
-from ai.orchestrator import run_orchestrator
-import traceback
-
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
     Send a user message and get the orchestrator's response.
     """
     try:
-        session_state = SESSION_STATES.setdefault(
-            request.session_id,
-            {
-                "step": "questioning",
-                "problem_description": "",
-                "qa_pairs": [],
-                "pending_questions": [],
-            },
-        )
+        session_state = await get_or_create_session_state(request.session_id)
         
         result = await run_orchestrator(
             session_id=request.session_id,
@@ -50,7 +41,12 @@ async def chat(request: ChatRequest):
             session_state=session_state
         )
 
-        SESSION_STATES[request.session_id] = result["updated_state"]
+        await save_session_state(
+            request.session_id,
+            result["updated_state"],
+            user_message=request.message,
+            assistant_reply=result["reply"],
+        )
         
         return ChatResponse(
             session_id=request.session_id,

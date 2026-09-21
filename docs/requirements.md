@@ -1,142 +1,235 @@
-# Requirements — AI Dispensing Defect Detective
-**Source:** AI Horizon Solution Challenge 2026 — NSW Automation
-**Tagline:** "Helping Manufacturers Identify Dispensing Problems Faster with AI"
+# Requirements - AI Dispensing Defect Detective
 
----
+## 1. Product Purpose
 
-## 1. Background
+Fluid dispensing defects are often triaged through experience held by a small number of engineers. The product helps operators and technicians perform faster, consistent, and explainable preliminary troubleshooting without replacing engineering judgment.
 
-Fluid dispensing is widely used in electronics and semiconductor manufacturing to apply materials such as adhesives, solder paste, epoxy, sealants, and other industrial fluids. Dispensing defects can occur during production, including:
+The system must identify dispensing defects, compare measurements with approved limits, rank likely causes, recommend an ordered action plan, and retain validated outcomes for future cases.
 
-- Too little material dispensed
-- Too much material dispensed
-- Inconsistent dispensing size
-- Missing dispensing dots
-- Material spreading beyond the required area
-- Air bubbles or abnormal dispensing shapes
+## 2. Users
 
-When defects occur, engineers and operators need to identify what went wrong, what might have caused it, and what to check first. Experienced engineers can diagnose these problems quickly, but new technicians and operators need more time and experience — creating an opportunity for an AI-based assistant.
-
-**Vision:** Design and develop an AI-powered troubleshooting assistant that analyses common fluid dispensing problems, identifies and ranks possible causes, explains its reasoning, and recommends a logical troubleshooting sequence. The goal is not to replace engineers, but to help engineers and technicians perform faster preliminary troubleshooting.
-
----
-
-## 2. Problem Statements
-
-- New technicians/operators lack the experience to quickly diagnose dispensing defects.
-- Root-cause identification currently relies heavily on experienced engineers, creating a bottleneck.
-- There is no fast, structured, explainable way to triage a dispensing problem before an engineer gets involved.
-- Existing troubleshooting knowledge is not systematically captured or reused across similar past cases.
-
----
-
-## 3. Users
-
-*Clarified by NSW Automation admin:*
-- **Operators** — focus on daily machine operation and production monitoring. They're the ones most likely to *first notice* a defect while running the equipment, but troubleshooting isn't their core job.
-- **Technicians** — focus on troubleshooting, maintenance, calibration, and technical support. They're the primary users of the diagnostic/cause-ranking output.
-
-Other users:
-- **Experienced engineers** — may use the tool for faster preliminary triage and to validate AI reasoning.
-- (Implied) **Training/QA staff** — could use generated reports as a training tool.
-
-*Design implication:* the tool likely needs to support two slightly different use patterns — Operators reporting *"something looks wrong"* (simple, fast input), and Technicians actively working through the diagnosis (deeper Q&A, checklist, action plan).
-
----
-
-## 4. Dataset & Sources
-
-*Clarified by NSW Automation admin:* No dataset will be provided — **participants must source their own suitable public dataset(s)**, including open-source or synthetic datasets where appropriate.
-
-Implied/likely inputs based on the described functionality:
-
-- User-described problem text (free text describing the defect)
-- User-uploaded images of dispensing results (Bonus Challenge 1) — will need a public or synthetic image dataset of dispensing defects (or a visually similar proxy, e.g., adhesive/solder dispensing defect images, if an exact match isn't available)
-- A troubleshooting knowledge base / historical case database (Bonus Challenge 3), storing:
-  - Dispensing Problem
-  - Possible Causes
-  - Recommended Solutions
-  - Successful Solution
-- **Action item:** search for public datasets (e.g., Kaggle, Roboflow Universe, academic manufacturing-defect datasets) covering dispensing/adhesive/solder-paste defects, or PCB/SMT defect datasets as a proxy. If nothing suitable is found, generate a small synthetic dataset (e.g., simulated case entries, or AI-generated/labelled defect images) — just be ready to explain the sourcing/generation method to judges, since it affects credibility of the demo.
-
----
-
-## 5. AI Model
-
-*Not explicitly specified in the source document.* Requirements implied by the described behavior:
-
-- Must support conversational/question-driven interaction (asks ~5 diagnostic questions, with dynamic follow-ups based on answers — Bonus Challenge).
-- Must classify/identify the most likely defect type from user input.
-- Must generate and rank multiple possible causes with an explainable confidence/likelihood score (e.g., percentage or star rating).
-- Must produce natural-language reasoning/justification for each ranked cause (not generic answers).
-- **Bonus:** Image recognition model to classify dispensing defects from uploaded photos (e.g., Missing Dot, Oversized Dot, Undersized Dot, Irregular Shape, Excessive Spreading).
-- **Bonus:** Learning capability — reference/learn from historical cases stored in a database to inform future recommendations.
-- **Note:** No specific model architecture, provider, or training approach is mandated — left to the team to choose based on the "Suggested Technology Level" below.
-
----
-
-## 6. Engine Flow
-
-**Team-proposed flexibility:** the flow below assumes the user starts by describing the problem in text (Step 1). In practice, a user should also be able to **upload a photo of the defect right away, before or instead of answering questions** — not just as a Bonus add-on tacked onto the end of the text flow. If a photo is uploaded first, Step 1's questions adapt: skip anything the photo already answers (e.g., which defect it looks like), and only ask about what's still unclear (e.g., material used, how often it happens).
-
-**Step 1 — Dispensing Problem Discovery**
-AI asks ~5 smart diagnostic questions, e.g.:
-- What material is being dispensed?
-- Is the dispensing amount too large or too small?
-- Is the defect happening continuously or occasionally?
-- Has the material, nozzle, or process setting recently changed?
-- Is the defect happening at one location or across multiple locations?
-- *(Bonus)* Dynamically ask additional follow-up questions based on user answers.
-- **(Team-proposed)** If a photo was already uploaded, fewer or different questions may be asked, since some answers can be read from the image.
-
-**Step 2 — Identify the Dispensing Defect**
-AI analyses input and identifies the most likely defect, with a confidence level and possible symptoms. If a photo was provided, this step draws on the image analysis directly instead of waiting for it to be requested separately.
-
-**Step 3 — AI Cause Analysis**
-AI generates a list of possible causes (e.g., material condition, air bubbles, dispensing parameters, nozzle condition, equipment condition).
-
-**Step 4 — Generate an AI Troubleshooting Score**
-AI produces a probability/confidence score per possible cause, with an explanation of *why* each cause is ranked as it is (logical reasoning, not generic output).
-
-**Step 5 — Generate a Troubleshooting Action Plan**
-AI recommends an ordered sequence of checks/actions for the user to perform.
-
-**Step 6/7 — Report Generation**
-Engine compiles the above into a simple troubleshooting report.
-
-Full engine sequence: Define problem (text and/or photo) → AI asks any remaining questions → Analyse symptoms → Compare possible causes → Rank possible causes → Recommend troubleshooting sequence → Generate report.
-
----
-
-## 7. Additional Requirements (may have been missed)
-
-### 7.1 Functional Requirements
-- Accept free-text problem descriptions from the user as input.
-- Support multi-turn, adaptive Q&A (not a fixed static form).
-- Output must include: identified defect, ranked causes with confidence scores, reasoning/explanation, and a recommended action sequence.
-- **Projects (team-proposed feature):** users can create a "Project" scoped to one machine/line/product (similar to Claude's Projects). Each Project keeps its own case history, so cause-ranking/RAG lookups only pull from relevant past cases instead of mixing unrelated machines or materials together. See system-architecture.md for how this fits the data flow.
-- **Flexible photo upload (team-proposed):** users can upload a defect photo at the very start of a session, not only after finishing the text Q&A. The system should accept a photo, text, or both, in any order, and adjust its questions accordingly. See system-architecture.md for how this changes the flow.
-
-### 7.2 Bonus / Stretch Features
-- **Image Recognition:** Upload and analyze a photo of the dispensing result to detect defect type.
-- **AI Dispensing Quality Score:** Generate a quality assessment (e.g., Shape Consistency, Size Consistency, Dispensing Position, Defect Risk, Overall Score out of 100).
-- **AI Learning Database:** Store past cases and reference historical frequency/outcomes (e.g., "Similar problems occurred 12 times previously; in 8 cases the cause was X").
-- **PDF Troubleshooting Report Generation:** Auto-generate a report containing Problem Description, Dispensing Defect, AI Analysis, Possible Causes, Confidence Score, Recommended Troubleshooting Actions, and Engineer Notes.
-
-### 7.3 Non-Functional / Design Requirements
-- Reasoning must be explainable — every ranked cause needs a logical justification, not a generic/black-box answer.
-- System should be usable by both novice technicians and experienced engineers (adaptive to user knowledge level).
-- Should support multiple people using the tool at the same time (e.g., during live judging), with each person's session kept fully separate — see system-architecture.md for how this is handled.
-
-### 7.4 Suggested Technology Levels (project scoping tiers)
-| Level | Requirement |
+| User | Primary need |
 |---|---|
-| Basic | AI chatbot + troubleshooting questions |
-| Intermediate | AI diagnosis + cause ranking + recommendations |
-| Advanced | Image analysis + troubleshooting database + report generation |
+| Operator | Report a defect quickly using simple language and measurements |
+| Technician | Receive ranked causes, reasoning, and an actionable checklist |
+| Engineer | Maintain specifications, rules, workflows, and approved knowledge |
+| QA or training staff | Review reports, recurring defects, and validated solutions |
 
-### 7.5 Open Items / Not Specified in Source (to clarify with stakeholders)
-- Target AI model/framework (LLM, CV model, etc.)
-- Deployment environment (web app, desktop, embedded on shop floor, etc.)
-- Success/evaluation metrics for the competition submission
-- UI/UX requirements beyond the conversational flow
+The Operator Console should remain simple. Advanced configuration belongs in a separate Engineer Studio.
+
+## 3. Product Principles
+
+1. **Evidence before inference:** use exact specifications and approved rules before LLM judgment.
+2. **Explainability:** state why a defect or cause was selected and identify supporting evidence.
+3. **No fabricated limits:** if no applicable threshold exists, say so.
+4. **Controlled learning:** historical outcomes become trusted knowledge only after validation.
+5. **Scoped context:** do not mix unrelated machines, materials, or production lines.
+6. **Human authority:** engineers retain control over specifications, safety rules, and published workflows.
+
+## 4. Functional Requirements
+
+### 4.1 Guided diagnostic conversation
+
+The current baseline flow must collect:
+
+1. Material being dispensed.
+2. Whether the amount or diameter is too large, too small, or otherwise abnormal, including a measured diameter when available.
+3. Whether the defect is continuous or intermittent.
+4. Whether relevant parameters or equipment recently changed.
+5. Whether the defect occurs at one location or multiple locations.
+
+The interface may combine related items in one message. It must not repeatedly ask for information already supplied.
+
+Future Knowledge Packs may add optional questions for a specific process, but required questions must remain governed by the published workflow.
+
+### 4.2 Threshold validation
+
+When the user provides a supported numeric measurement, the system must:
+
+- Retrieve the best applicable threshold for the material and process.
+- Compare the measured value deterministically with minimum and maximum values.
+- Return `below_min`, `pass`, or `above_max`.
+- Cite the measured value and exact reference limit.
+- Record the matched threshold row and version in the session.
+- Continue without inventing a limit when no matching threshold exists.
+
+Supported or planned parameters include diameter, dispensing volume, pressure, speed or flow rate, dispensing time, nozzle size, and dispensing height. Every value must have an explicit unit.
+
+### 4.3 Defect identification
+
+The system must classify the most likely defect and provide a confidence score and reasoning. Initial defect classes are:
+
+- Missing Dot
+- Oversized Dot
+- Undersized Dot
+- Irregular Shape
+- Excessive Spreading
+
+### 4.4 Cause ranking
+
+The system must produce ranked probable causes. Each cause must include:
+
+- Rank.
+- Category.
+- Confidence score.
+- Reasoning linked to observed evidence.
+- Evidence source type where available.
+
+Cause categories include material condition, trapped air, dispensing parameters, nozzle condition, and equipment condition.
+
+### 4.5 Action plan and report
+
+The final response must include:
+
+1. Detected defect and confidence score.
+2. Most probable root cause and explanation.
+3. Exactly three ordered troubleshooting actions.
+4. The question, "Did this fix the issue?"
+
+A completed case must be saved once, without duplicate history records if the report is requested again.
+
+### 4.6 Outcome feedback
+
+The next release must process the technician's response after the action plan. It must capture:
+
+- Whether the issue was fixed.
+- Which action was attempted.
+- Confirmed cause, when known.
+- Before and after measurements, when available.
+- Technician notes.
+- Reviewer and approval status.
+
+Negative outcomes are valuable and must be retained so ineffective recommendations are not repeatedly promoted.
+
+### 4.7 Session persistence
+
+- Every browser session must have a unique session ID.
+- Workflow stage, Q&A, intermediate results, and conversation history must persist in Supabase.
+- Multiple simultaneous users must not share state.
+- A user must be able to start a fresh case without manually clearing browser storage in the production UI.
+
+### 4.8 Knowledge Packs
+
+An engineer must be able to define a versioned Knowledge Pack containing:
+
+- Applicable project, machine, line, product, or material.
+- Material properties.
+- Numeric thresholds and units.
+- Defect and cause rules.
+- Diagnostic questions.
+- Approved troubleshooting actions.
+- Safety constraints.
+- Source references and revision metadata.
+- Draft, approved, superseded, or archived status.
+
+Only approved versions may influence production recommendations as authoritative evidence.
+
+### 4.9 Projects and scoping
+
+The planned Projects feature must scope sessions, thresholds, Knowledge Packs, and case-history retrieval to a machine, production line, or product. Global fallback knowledge must be explicitly labeled.
+
+### 4.10 Engineer Studio and workflow customization
+
+The planned Engineer Studio should allow authorized users to:
+
+- Edit and publish Knowledge Packs.
+- Configure approved workflow nodes and branches.
+- Preview and test a workflow before publishing.
+- Review proposed knowledge derived from cases.
+- Roll back to an earlier version.
+- Inspect an audit history.
+
+Drag-and-drop is a desired interaction, not the workflow storage format. Workflow definitions must be stored as validated, versioned structured data.
+
+## 5. Data Requirements
+
+### Authoritative data
+
+- Engineering specifications and accepted ranges.
+- Material and machine applicability.
+- Source, owner, revision, and approval status.
+
+### Operational data
+
+- Session and conversation state.
+- Extracted measurements and units.
+- Agent outputs and evidence references.
+- Completed reports and recommended actions.
+
+### Learning data
+
+- Historical cases.
+- Actions attempted.
+- Successful and unsuccessful outcomes.
+- Confirmed causes.
+- Human review status.
+
+Synthetic demonstration data must be labeled as synthetic. It must not be presented as production evidence.
+
+## 6. Non-Functional Requirements
+
+### Accuracy and safety
+
+- Deterministic threshold comparisons must pass all boundary tests.
+- The system must distinguish deterministic results from AI confidence.
+- Missing evidence must reduce confidence rather than trigger fabrication.
+- Safety-critical actions may require engineer approval.
+
+### Explainability and traceability
+
+- Every final cause must be traceable to specifications, expert rules, historical cases, or model inference.
+- Completed cases should record model, prompt, workflow, and Knowledge Pack versions.
+- Changes to approved knowledge must be auditable.
+
+### Security
+
+- Secret keys must remain on the backend.
+- Supabase Row Level Security must be enabled with least-privilege policies.
+- Roles must separate operators, technicians, and knowledge administrators.
+- User input and uploaded content must be treated as untrusted.
+
+### Reliability and usability
+
+- Session state must survive page refresh and backend restart.
+- Database or model failures must return a clear recoverable error.
+- The core workflow must work on desktop and mobile layouts.
+- Operators should not need agent or prompt-engineering knowledge.
+
+### Performance
+
+- Deterministic checks should return within the normal API round trip.
+- Independent model tasks may run in parallel where applicable.
+- The UI must display a stable loading state during multi-agent processing.
+
+## 7. Current Scope Status
+
+| Capability | Status |
+|---|---|
+| Web chat and API | Implemented |
+| Four-stage diagnostic flow | Implemented |
+| Session persistence | Implemented |
+| Diameter threshold comparison | Implemented |
+| Defect identification | Implemented |
+| Cause ranking and similar-case lookup | Implemented |
+| Three-step action plan | Implemented |
+| Completed-case persistence | Implemented |
+| Outcome feedback processing | Next priority |
+| Knowledge Pack management | Planned |
+| Project-scoped retrieval | Planned |
+| Evidence citations in UI | Planned |
+| Engineer Studio | Planned |
+| Drag-and-drop workflow builder | Future |
+| Image upload UI | Deferred; backend analysis code exists |
+
+## 8. Acceptance Scenario
+
+Given a Solder Paste Knowledge Pack with a diameter range of `0.40-0.60 mm`:
+
+1. User reports solder paste with a measured diameter of `0.95 mm`.
+2. System states that `0.95 mm` is above the `0.60 mm` maximum.
+3. System asks only for frequency, recent changes, and location.
+4. User reports a continuous issue across multiple locations on a new machine.
+5. System returns an oversized defect with confidence, an evidence-based probable cause, exactly three actions, and asks whether the issue was fixed.
+6. The completed case is saved once.
+
+The scenario passes only if no extra unrelated questions are asked and the threshold values come from stored reference data.

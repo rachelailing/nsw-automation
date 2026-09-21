@@ -41,6 +41,48 @@ async def get_similar_cases(defect_type: str) -> list[dict]:
     return await fetch_similar_cases(defect_type)
 
 
+async def save_completed_case(
+    session_id: str,
+    problem_description: str,
+    defect_type: str,
+    causes: list[dict],
+    action_plan: str,
+) -> dict:
+    """Lazy-load the database dependency only when a session is complete."""
+    from db.case_history import save_case
+
+    return await save_case(
+        session_id=session_id,
+        problem_description=problem_description,
+        defect_type=defect_type,
+        causes=causes,
+        action_plan=action_plan,
+    )
+
+
+async def build_reference_threshold_context(
+    problem_description: str,
+    qa_pairs: list[dict],
+    defect_type: str | None = None,
+) -> tuple[str, dict | None]:
+    """Return formatted threshold checks when numeric parameters are present."""
+    try:
+        from db.reference_thresholds import (
+            evaluate_reference_thresholds,
+            format_threshold_context,
+        )
+
+        evaluation = await evaluate_reference_thresholds(
+            problem_description=problem_description,
+            qa_pairs=qa_pairs,
+            defect_type=defect_type,
+        )
+        return format_threshold_context(evaluation), evaluation
+    except Exception as e:
+        print(f"Reference threshold check skipped: {e}")
+        return "", None
+
+
 PHOTO_ONLY_MESSAGES = {
     "",
     "image uploaded",
@@ -50,6 +92,24 @@ PHOTO_ONLY_MESSAGES = {
     "[image uploaded]",
     "[photo uploaded]",
 }
+
+MATERIAL_QUESTION = (
+    "Hey there! Ready to help you troubleshoot your dispensing defect.\n\n"
+    "To kick things off, what kind of material are you dispensing right now "
+    "(like solder paste, epoxy, or underfill)?"
+)
+DIAMETER_QUESTION = (
+    "Is the dispensing amount or diameter currently coming out too large, too small, "
+    "or having some other issue? Also, what is the exact measured diameter if you have it?"
+)
+FREQUENCY_AND_CHANGES_QUESTION = (
+    "Is this defect happening continuously on every part, or is it occasional and random? "
+    "Also, have any parameters such as pressure, dispensing time, or nozzle size recently changed?"
+)
+LOCATION_QUESTION = (
+    "Got it. Just one last detail to make sure I have the full picture: is this happening "
+    "at one specific location on the board, or across multiple locations?"
+)
 
 
 def has_meaningful_text(value: str | None) -> bool:
@@ -179,6 +239,10 @@ def build_ranking_problem_context(session_state: dict) -> str:
     if image_result:
         parts.append(format_image_context(image_result))
 
+    threshold_context = session_state.get("reference_threshold_context")
+    if threshold_context:
+        parts.append(threshold_context)
+
     return "\n\n".join(parts) if parts else "No problem description was provided."
 
 
@@ -229,6 +293,10 @@ def build_report_problem_context(session_state: dict) -> str:
     if image_result:
         parts.append(format_image_context(image_result))
 
+    threshold_context = session_state.get("reference_threshold_context")
+    if threshold_context:
+        parts.append(threshold_context)
+
     return "\n\n".join(parts) if parts else "No problem description was provided."
 
 
@@ -258,6 +326,121 @@ def format_report_reply(report: dict) -> str:
     return "\n".join(lines)
 
 
+def format_completed_diagnosis_reply(session_state: dict) -> str:
+    """Format the single final response produced after questioning completes."""
+    defect_result = session_state.get("defect_result") or {}
+    causes = session_state.get("causes") or []
+    report = session_state.get("report") or {}
+    confidence = defect_result.get("confidence", 0)
+    confidence_percent = round(confidence * 100) if confidence <= 1 else round(confidence)
+
+    lines = [
+        "1) Detected Defect & Confidence Score: "
+        f"{defect_result.get('defect_type', 'Unknown')} ({confidence_percent}% Confidence)",
+        "",
+        "2) Probable Root Cause:",
+    ]
+    if causes:
+        top_cause = causes[0]
+        lines.append(top_cause.get("cause", "Unknown"))
+        if top_cause.get("reasoning"):
+            lines.append(top_cause["reasoning"])
+    else:
+        lines.append("No probable cause could be ranked from the available evidence.")
+
+    action_plan = (report.get("action_plan") or [])[:3]
+    if action_plan:
+        lines.extend(["", "3) Recommended 3-step action plan:"])
+        for step in action_plan:
+            lines.append(f"- {step.get('action')}")
+
+    lines.extend(["", "Did this fix the issue?"])
+    return "\n".join(lines)
+
+
+def format_diameter_threshold_feedback(evaluation: dict | None) -> str:
+    """Explain the measured diameter against the fetched reference limits."""
+    checks = (evaluation or {}).get("checks") or []
+    diameter_check = next(
+        (check for check in checks if check.get("parameter") == "diameter"),
+        None,
+    )
+    if not diameter_check:
+        return "Got it."
+
+    measured = diameter_check["measured"]
+    minimum = diameter_check["min"]
+    maximum = diameter_check["max"]
+    status = diameter_check["status"]
+
+    if status == "below_min":
+        return (
+            f"Your measured {measured:.2f} mm is below the {minimum:.2f} mm minimum "
+            "limit from the reference table, confirming an undersized/insufficient deposit."
+        )
+    if status == "above_max":
+        return (
+            f"Your measured {measured:.2f} mm is above the {maximum:.2f} mm maximum "
+            "limit from the reference table, confirming an oversized/excessive deposit."
+        )
+    return (
+        f"Your measured {measured:.2f} mm is within the reference range of "
+        f"{minimum:.2f} to {maximum:.2f} mm."
+    )
+
+
+async def rank_causes(session_state: dict, qa_pairs: list[dict]) -> dict:
+    """Run cause ranking and store its result in the session state."""
+    defect_type = session_state.get("defect_type")
+    similar_cases = session_state.get("similar_cases")
+    if similar_cases is None:
+        similar_cases = await get_similar_cases(defect_type)
+        session_state["similar_cases"] = similar_cases
+
+    ranking_result = await run_cause_ranking_agent(
+        defect_type=defect_type,
+        problem_description=build_ranking_problem_context(session_state),
+        qa_pairs=qa_pairs,
+        similar_cases=similar_cases,
+    )
+    session_state["cause_ranking_result"] = ranking_result
+    session_state["causes"] = ranking_result.get("causes", [])
+    return ranking_result
+
+
+async def generate_report_and_save_case(
+    session_id: str,
+    session_state: dict,
+    qa_pairs: list[dict],
+) -> dict:
+    """Generate the report, persist the completed case, and mark the session done."""
+    defect_type = session_state.get("defect_type")
+    causes = session_state.get("causes") or []
+    report_context = build_report_problem_context(session_state)
+    report = await run_report_agent(
+        defect_type=defect_type,
+        causes=causes,
+        problem_description=report_context,
+        qa_pairs=qa_pairs,
+    )
+
+    session_state["report"] = report
+    session_state["step"] = "done"
+
+    if not session_state.get("case_history_saved"):
+        saved_case = await save_completed_case(
+            session_id=session_id,
+            problem_description=report_context,
+            defect_type=defect_type,
+            causes=causes,
+            action_plan=format_report_reply(report),
+        )
+        session_state["case_history_saved"] = True
+        session_state["case_history_id"] = saved_case.get("id")
+
+    return report
+
+
 async def run_orchestrator(session_id: str, user_message: str, session_state: dict) -> dict:
     """
     Process a user message through the orchestrator.
@@ -278,38 +461,103 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
         session_state["image_result"] = image_result
 
     if current_step == "questioning":
-        if not problem_description and has_meaningful_text(user_message):
-            problem_description = user_message
-            session_state["problem_description"] = problem_description
-        elif pending_questions:
-            answered_question = pending_questions.pop(0)
+        if "diagnostic_stage" not in session_state:
+            session_state["diagnostic_stage"] = "material"
+            session_state["workflow_started"] = False
+            session_state["qa_pairs"] = []
+            session_state["pending_questions"] = []
+            qa_pairs = session_state["qa_pairs"]
+            pending_questions = session_state["pending_questions"]
+
+        if not session_state.get("workflow_started"):
+            session_state["workflow_started"] = True
+            if has_meaningful_text(user_message):
+                session_state["problem_description"] = user_message
+            return {
+                "reply": MATERIAL_QUESTION,
+                "step": "questioning",
+                "updated_state": session_state,
+            }
+
+        diagnostic_stage = session_state.get("diagnostic_stage", "material")
+
+        if diagnostic_stage == "material":
+            qa_pairs.append({"question": MATERIAL_QUESTION, "answer": user_message})
+            session_state["qa_pairs"] = qa_pairs
+            session_state["diagnostic_stage"] = "diameter"
+            return {
+                "reply": f"Got it, {user_message.strip()}.\n\n{DIAMETER_QUESTION}",
+                "step": "questioning",
+                "updated_state": session_state,
+            }
+
+        if diagnostic_stage == "diameter":
+            qa_pairs.append({"question": DIAMETER_QUESTION, "answer": user_message})
+            session_state["qa_pairs"] = qa_pairs
+            threshold_context, threshold_evaluation = await build_reference_threshold_context(
+                problem_description=problem_description,
+                qa_pairs=qa_pairs,
+            )
+            if threshold_context:
+                session_state["reference_threshold_context"] = threshold_context
+                session_state["reference_threshold_evaluation"] = threshold_evaluation
+            session_state["diagnostic_stage"] = "frequency_and_changes"
+            feedback = format_diameter_threshold_feedback(threshold_evaluation)
+            return {
+                "reply": f"{feedback}\n\n{FREQUENCY_AND_CHANGES_QUESTION}",
+                "step": "questioning",
+                "updated_state": session_state,
+            }
+
+        if diagnostic_stage == "frequency_and_changes":
             qa_pairs.append({
-                "question": answered_question,
+                "question": FREQUENCY_AND_CHANGES_QUESTION,
                 "answer": user_message,
             })
             session_state["qa_pairs"] = qa_pairs
-            session_state["pending_questions"] = pending_questions
+            session_state["diagnostic_stage"] = "location"
+            return {
+                "reply": LOCATION_QUESTION,
+                "step": "questioning",
+                "updated_state": session_state,
+            }
 
-            if pending_questions:
-                return {
-                    "reply": pending_questions[0],
-                    "step": "questioning",
-                    "updated_state": session_state,
-                }
+        if diagnostic_stage == "location":
+            qa_pairs.append({"question": LOCATION_QUESTION, "answer": user_message})
+            session_state["qa_pairs"] = qa_pairs
+            session_state["diagnostic_stage"] = "complete"
+            result = {"questions": [], "enough_info": True}
+        else:
+            result = {"questions": [], "enough_info": True}
 
-        # Call the Question Agent
-        question_context = build_question_context(problem_description, image_result)
-        result = await run_question_agent(
-            problem_description=question_context,
-            previous_answers=qa_pairs
-        )
+        if not problem_description and has_meaningful_text(user_message):
+            problem_description = user_message
+            session_state["problem_description"] = problem_description
         
         if result.get("enough_info"):
             has_text_evidence = has_meaningful_text(problem_description) or bool(qa_pairs)
+            threshold_context = ""
+
+            if has_text_evidence and not session_state.get("reference_threshold_evaluation"):
+                threshold_context, threshold_evaluation = await build_reference_threshold_context(
+                    problem_description=problem_description,
+                    qa_pairs=qa_pairs,
+                )
+                if threshold_context:
+                    session_state["reference_threshold_context"] = threshold_context
+                    session_state["reference_threshold_evaluation"] = threshold_evaluation
+            else:
+                threshold_context = session_state.get("reference_threshold_context", "")
+
+            text_problem_description = problem_description
+            if threshold_context:
+                text_problem_description = (
+                    f"{problem_description}\n\n{threshold_context}"
+                )
 
             if has_text_evidence and image_result and not session_state.get("text_result"):
                 text_result = await run_text_defect_agent(
-                    problem_description=problem_description or "Photo-first session with follow-up Q&A.",
+                    problem_description=text_problem_description or "Photo-first session with follow-up Q&A.",
                     qa_pairs=qa_pairs,
                 )
                 session_state["text_result"] = text_result
@@ -318,7 +566,7 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
                 defect_result = combine_defect_results(session_state["text_result"], image_result)
             elif has_text_evidence:
                 text_result = await run_text_defect_agent(
-                    problem_description=problem_description,
+                    problem_description=text_problem_description,
                     qa_pairs=qa_pairs,
                 )
                 session_state["text_result"] = text_result
@@ -334,17 +582,10 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
 
             session_state["defect_result"] = defect_result
             session_state["defect_type"] = defect_result.get("defect_type")
-            session_state["step"] = "ranking"
-
-            reply = (
-                "I have enough information to identify the likely defect.\n\n"
-                f"Defect type: {defect_result.get('defect_type')}\n"
-                f"Confidence: {defect_result.get('confidence')}\n\n"
-                f"Source: {defect_result.get('source')}\n\n"
-                f"Reasoning: {defect_result.get('reasoning')}\n\n"
-                "Next, this should flow into cause ranking."
-            )
-            current_step = "ranking"
+            await rank_causes(session_state, qa_pairs)
+            await generate_report_and_save_case(session_id, session_state, qa_pairs)
+            reply = format_completed_diagnosis_reply(session_state)
+            current_step = "done"
         else:
             # Format questions out
             questions = result.get("questions", [])
@@ -367,20 +608,7 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
                 "updated_state": {**session_state, "step": "questioning"},
             }
 
-        similar_cases = session_state.get("similar_cases")
-        if similar_cases is None:
-            similar_cases = await get_similar_cases(defect_type)
-            session_state["similar_cases"] = similar_cases
-
-        ranking_result = await run_cause_ranking_agent(
-            defect_type=defect_type,
-            problem_description=build_ranking_problem_context(session_state),
-            qa_pairs=qa_pairs,
-            similar_cases=similar_cases,
-        )
-
-        session_state["cause_ranking_result"] = ranking_result
-        session_state["causes"] = ranking_result.get("causes", [])
+        ranking_result = await rank_causes(session_state, qa_pairs)
         session_state["step"] = "reporting"
 
         return {
@@ -400,15 +628,11 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
                 "updated_state": {**session_state, "step": "ranking"},
             }
 
-        report = await run_report_agent(
-            defect_type=defect_type,
-            causes=causes,
-            problem_description=build_report_problem_context(session_state),
-            qa_pairs=qa_pairs,
+        report = await generate_report_and_save_case(
+            session_id,
+            session_state,
+            qa_pairs,
         )
-
-        session_state["report"] = report
-        session_state["step"] = "done"
 
         return {
             "reply": format_report_reply(report),

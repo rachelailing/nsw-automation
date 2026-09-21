@@ -140,7 +140,7 @@ async def run(
         result = response.choices[0].message.parsed
         action_plan = [
             normalize_action_step(step, idx)
-            for idx, step in enumerate(result.action_plan[:8], 1)
+            for idx, step in enumerate(result.action_plan[:3], 1)
         ]
 
         return {

@@ -12,7 +12,16 @@ import { sendMessage } from "@/lib/api";
 import { v4 as uuidv4 } from "uuid";
 
 export function useChat() {
-  const [sessionId] = useState(() => uuidv4());
+  const [sessionId] = useState(() => {
+    if (typeof window === "undefined") return uuidv4();
+
+    const existingSessionId = window.localStorage.getItem("defectDetectiveSessionId");
+    if (existingSessionId) return existingSessionId;
+
+    const newSessionId = uuidv4();
+    window.localStorage.setItem("defectDetectiveSessionId", newSessionId);
+    return newSessionId;
+  });
   const [messages, setMessages] = useState([]);
   const [currentStep, setCurrentStep] = useState("questioning");
   const [isLoading, setIsLoading] = useState(false);
