@@ -44,6 +44,8 @@ Material
 - `backend/db/knowledge_content.py`: retrieves and formats pack-scoped materials, expert rules, and approved actions.
 - `backend/api/knowledge.py`: active-pack inspection and review-first source import API.
 - `backend/services/knowledge_ingestion.py`: PDF/text extraction and structured draft generation.
+- `backend/report/pdf_generator.py`: on-demand troubleshooting PDF generation from persisted session state.
+- `backend/api/report.py`: completed-report metadata and PDF download endpoints.
 
 ### Diagnostic runtime
 

@@ -903,6 +903,7 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
         cause = user_message.strip()
         if cause.lower() in {"unknown", "none", "not sure"}:
             cause = None
+        session_state["feedback_cause"] = cause
 
         await save_case_feedback(
             case_id=session_state["case_history_id"],

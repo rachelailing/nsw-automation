@@ -41,6 +41,20 @@ export async function getReport(sessionId) {
   return res.json();
 }
 
+export async function downloadReportPdf(sessionId) {
+  const res = await fetch(`${API_BASE}/api/report/${sessionId}/pdf`);
+  if (!res.ok) {
+    throw new Error(await readApiError(res, `PDF download failed: ${res.status}`));
+  }
+
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return {
+    blob: await res.blob(),
+    filename: filenameMatch?.[1] || `troubleshooting-${sessionId.slice(0, 8)}.pdf`,
+  };
+}
+
 async function readApiError(res, fallback) {
   try {
     const body = await res.json();

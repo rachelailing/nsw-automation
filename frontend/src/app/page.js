@@ -8,6 +8,7 @@ import { useChat } from "@/hooks/useChat";
 import ChatWindow from "@/components/ChatWindow";
 import ChatInput from "@/components/ChatInput";
 import KnowledgePackPanel from "@/components/KnowledgePackPanel";
+import ReportDownload from "@/components/ReportDownload";
 import { useState } from "react";
 import styles from "./page.module.css";
 
@@ -61,6 +62,8 @@ export default function Home() {
             />
 
             {error && <div className={styles.error}>{error}</div>}
+
+            <ReportDownload sessionId={sessionId} currentStep={currentStep} />
 
             <ChatInput onSend={send} isLoading={isLoading} />
           </div>

@@ -212,6 +212,7 @@ Synthetic demonstration data must be labeled as synthetic. It must not be presen
 | Defect identification | Implemented |
 | Cause ranking and similar-case lookup | Implemented |
 | Three-step action plan | Implemented |
+| Downloadable PDF troubleshooting report | Implemented |
 | Completed-case persistence | Implemented |
 | Outcome feedback processing | Implemented |
 | Knowledge Pack schema, versioning, and structured content | Backend implemented |

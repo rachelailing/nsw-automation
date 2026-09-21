@@ -203,6 +203,7 @@ The first implementation should be a form-based workflow editor backed by the sa
 - Five-stage, one-question-at-a-time diagnostic conversation.
 - Immediate diameter threshold validation.
 - Text defect classification, cause ranking, and three-step action plan.
+- Downloadable PDF troubleshooting reports generated from persisted session evidence.
 - Similar-case retrieval and completed-case persistence.
 - Outcome feedback persistence with confirmed action and cause.
 - Versioned Projects, Knowledge Packs, and knowledge-source records.
