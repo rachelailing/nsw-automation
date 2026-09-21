@@ -122,12 +122,20 @@ async def get_best_threshold_row(
     problem_description: str,
     qa_pairs: list[dict],
     defect_type: str | None = None,
+    project_id: int | None = None,
+    knowledge_pack_id: int | None = None,
 ) -> dict | None:
     """Fetch the best matching threshold row for the current case."""
     from db.supabase_client import get_client
 
     client = get_client()
-    result = client.table("reference_thresholds").select("*").execute()
+    query = client.table("reference_thresholds").select("*")
+    if project_id is not None:
+        query = query.eq("project_id", project_id)
+    if knowledge_pack_id is not None:
+        query = query.eq("knowledge_pack_id", knowledge_pack_id)
+
+    result = query.execute()
     rows = result.data or []
     if not rows:
         return None
@@ -149,6 +157,8 @@ async def evaluate_reference_thresholds(
     problem_description: str,
     qa_pairs: list[dict],
     defect_type: str | None = None,
+    project_id: int | None = None,
+    knowledge_pack_id: int | None = None,
 ) -> dict:
     """
     Compare extracted numeric values against the best matching threshold row.
@@ -159,6 +169,8 @@ async def evaluate_reference_thresholds(
         problem_description=problem_description,
         qa_pairs=qa_pairs,
         defect_type=defect_type,
+        project_id=project_id,
+        knowledge_pack_id=knowledge_pack_id,
     )
 
     if not measurements or not threshold_row:

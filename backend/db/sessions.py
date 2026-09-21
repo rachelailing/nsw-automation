@@ -8,9 +8,13 @@ simultaneously without sessions mixing up.
 
 import uuid
 from db.supabase_client import get_client
+from db.knowledge_packs import get_active_knowledge_pack
 
 
-def default_session_state() -> dict:
+def default_session_state(
+    project_id: int | None = None,
+    knowledge_pack_id: int | None = None,
+) -> dict:
     """Return the initial state expected by the orchestrator."""
     return {
         "step": "questioning",
@@ -19,6 +23,8 @@ def default_session_state() -> dict:
         "pending_questions": [],
         "diagnostic_stage": "material",
         "workflow_started": False,
+        "project_id": project_id,
+        "knowledge_pack_id": knowledge_pack_id,
     }
 
 
@@ -31,13 +37,20 @@ async def create_session() -> dict:
     """
     client = get_client()
     session_id = str(uuid.uuid4())
+    active_pack = await get_active_knowledge_pack()
+    initial_state = default_session_state(
+        project_id=active_pack["project_id"],
+        knowledge_pack_id=active_pack["id"],
+    )
     data = {
         "session_id": session_id,
+        "project_id": active_pack["project_id"],
+        "knowledge_pack_id": active_pack["id"],
         "step": "questioning",
         "conversation_history": [],
         "problem_description": "",
         "qa_pairs": [],
-        "state": default_session_state(),
+        "state": initial_state,
         "defect_type": None,
         "causes": None,
         "image_url": None,
@@ -99,7 +112,24 @@ async def get_or_create_session_state(session_id: str) -> dict:
         row = result.data[0]
         state = row.get("state") or {}
         if state:
+            project_id = state.get("project_id") or row.get("project_id")
+            knowledge_pack_id = (
+                state.get("knowledge_pack_id") or row.get("knowledge_pack_id")
+            )
+            if not project_id or not knowledge_pack_id:
+                active_pack = await get_active_knowledge_pack(project_id=project_id)
+                project_id = active_pack["project_id"]
+                knowledge_pack_id = active_pack["id"]
+            state["project_id"] = project_id
+            state["knowledge_pack_id"] = knowledge_pack_id
             return state
+
+        project_id = row.get("project_id")
+        knowledge_pack_id = row.get("knowledge_pack_id")
+        if not project_id or not knowledge_pack_id:
+            active_pack = await get_active_knowledge_pack(project_id=project_id)
+            project_id = active_pack["project_id"]
+            knowledge_pack_id = active_pack["id"]
 
         return {
             "step": row.get("step") or "questioning",
@@ -109,12 +139,20 @@ async def get_or_create_session_state(session_id: str) -> dict:
             "defect_type": row.get("defect_type"),
             "causes": row.get("causes") or [],
             "image_url": row.get("image_url"),
+            "project_id": project_id,
+            "knowledge_pack_id": knowledge_pack_id,
         }
 
-    initial_state = default_session_state()
+    active_pack = await get_active_knowledge_pack()
+    initial_state = default_session_state(
+        project_id=active_pack["project_id"],
+        knowledge_pack_id=active_pack["id"],
+    )
     client.table("sessions").insert(
         {
             "session_id": session_id,
+            "project_id": active_pack["project_id"],
+            "knowledge_pack_id": active_pack["id"],
             "step": initial_state["step"],
             "problem_description": initial_state["problem_description"],
             "conversation_history": [],
@@ -163,6 +201,8 @@ async def save_session_state(
         "defect_type": state.get("defect_type"),
         "causes": state.get("causes"),
         "image_url": state.get("image_url"),
+        "project_id": state.get("project_id"),
+        "knowledge_pack_id": state.get("knowledge_pack_id"),
     }
 
     update_result = (

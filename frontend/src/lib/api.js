@@ -40,3 +40,44 @@ export async function getReport(sessionId) {
   if (!res.ok) throw new Error(`Report request failed: ${res.status}`);
   return res.json();
 }
+
+async function readApiError(res, fallback) {
+  try {
+    const body = await res.json();
+    return body.detail || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function getActiveKnowledgePack() {
+  const res = await fetch(`${API_BASE}/api/knowledge/active`);
+  if (!res.ok) {
+    throw new Error(await readApiError(res, `Knowledge request failed: ${res.status}`));
+  }
+  return res.json();
+}
+
+export async function importKnowledgeSource(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${API_BASE}/api/knowledge/sources/import`, {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, `Source import failed: ${res.status}`));
+  }
+  return res.json();
+}
+
+export async function deleteKnowledgeSource(sourceId) {
+  const res = await fetch(`${API_BASE}/api/knowledge/sources/${sourceId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, `Source deletion failed: ${res.status}`));
+  }
+  return res.json();
+}

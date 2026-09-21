@@ -15,6 +15,8 @@ async def save_case(
     causes: list[dict],
     action_plan: str,
     outcome: str | None = None,
+    project_id: int | None = None,
+    knowledge_pack_id: int | None = None,
 ) -> dict:
     """
     Save a completed troubleshooting case to the case_history table.
@@ -33,12 +35,19 @@ async def save_case(
         "causes": causes,
         "action_plan": action_plan,
         "outcome": outcome,
+        "project_id": project_id,
+        "knowledge_pack_id": knowledge_pack_id,
     }
     result = client.table("case_history").insert(data).execute()
     return result.data[0] if result.data else {}
 
 
-async def get_similar_cases(defect_type: str, limit: int = 5) -> list[dict]:
+async def get_similar_cases(
+    defect_type: str,
+    project_id: int | None = None,
+    knowledge_pack_id: int | None = None,
+    limit: int = 5,
+) -> list[dict]:
     """
     Retrieve similar past cases for RAG context.
 
@@ -58,12 +67,15 @@ async def get_similar_cases(defect_type: str, limit: int = 5) -> list[dict]:
     - Return top N results
     """
     client = get_client()
-    result = (
+    query = (
         client.table("case_history")
         .select("problem_description, defect_type, causes, action_plan, outcome, created_at")
         .eq("defect_type", defect_type)
-        .order("created_at", desc=True)
-        .limit(limit)
-        .execute()
     )
+    if project_id is not None:
+        query = query.eq("project_id", project_id)
+    if knowledge_pack_id is not None:
+        query = query.eq("knowledge_pack_id", knowledge_pack_id)
+
+    result = query.order("created_at", desc=True).limit(limit).execute()
     return result.data if result.data else []

@@ -9,6 +9,11 @@ Your job: given an identified defect type and all gathered information, generate
 4. **Nozzle Condition** — Clogged nozzle, worn nozzle tip, wrong nozzle size, dried material at tip.
 5. **Equipment Condition** — Valve malfunction, pressure regulator issues, Z-axis calibration, worn seals.
 
+## Approved Knowledge Pack Context
+Use matching expert rules as weighted evidence. Do not claim that a rule proves the cause; reconcile it with the user's observations.
+
+{knowledge_context}
+
 ## Similar Past Cases (RAG Context)
 If similar past cases are provided below, use them to inform your rankings — reference them in your reasoning (e.g., "In 3 similar past cases, the cause was...").
 
@@ -34,4 +39,5 @@ Return a JSON object:
 - Provide at least 3 causes, up to 5.
 - Confidence scores should sum to roughly 1.0 (they represent relative likelihood).
 - Each reasoning should specifically reference evidence from the Q&A, image observations, or past cases.
+- Prefer matching approved expert rules over generic assumptions, and do not use rules whose conditions contradict the Q&A.
 - If past cases are available, explicitly note how they influenced your ranking.

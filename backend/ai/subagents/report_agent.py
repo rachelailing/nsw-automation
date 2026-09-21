@@ -95,6 +95,7 @@ async def run(
     causes: list[dict],
     problem_description: str,
     qa_pairs: list[dict],
+    knowledge_context: str | None = None,
 ) -> dict:
     """
     Generate the action plan and structured report.
@@ -116,7 +117,10 @@ async def run(
             recommendations: list[str] — preventive recommendations
 
     """
-    system_prompt = load_prompt()
+    system_prompt = load_prompt().replace(
+        "{knowledge_context}",
+        knowledge_context or "No approved structured content was provided.",
+    )
     user_context = build_report_context(
         defect_type=defect_type,
         causes=causes,

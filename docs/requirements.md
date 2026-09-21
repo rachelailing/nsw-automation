@@ -213,9 +213,12 @@ Synthetic demonstration data must be labeled as synthetic. It must not be presen
 | Cause ranking and similar-case lookup | Implemented |
 | Three-step action plan | Implemented |
 | Completed-case persistence | Implemented |
-| Outcome feedback processing | Next priority |
-| Knowledge Pack management | Planned |
-| Project-scoped retrieval | Planned |
+| Outcome feedback processing | Implemented |
+| Knowledge Pack schema, versioning, and structured content | Backend implemented |
+| Knowledge source import and extraction preview | Implemented |
+| Knowledge Pack inspection and import UI | Implemented |
+| Knowledge Pack approval and publication UI | Planned |
+| Project-scoped retrieval | Backend implemented; project selection UI planned |
 | Evidence citations in UI | Planned |
 | Engineer Studio | Planned |
 | Drag-and-drop workflow builder | Future |

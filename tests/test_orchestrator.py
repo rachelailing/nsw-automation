@@ -75,6 +75,8 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
             "pending_questions": [],
             "diagnostic_stage": "diameter",
             "workflow_started": True,
+            "project_id": 10,
+            "knowledge_pack_id": 20,
         }
 
         result = await run_orchestrator(
@@ -88,6 +90,12 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             result["updated_state"]["diagnostic_stage"],
             "frequency",
+        )
+        mock_threshold_context.assert_awaited_once_with(
+            problem_description="Hi",
+            qa_pairs=result["updated_state"]["qa_pairs"],
+            project_id=10,
+            knowledge_pack_id=20,
         )
 
     async def test_repeated_answer_is_not_accepted_for_next_stage(self):
@@ -425,6 +433,9 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
                 "source": "text",
                 "reasoning": "The answers point to insufficient material.",
             },
+            "project_id": 10,
+            "knowledge_pack_id": 20,
+            "knowledge_context": "Approved rule: low pressure can cause undersized dots.",
         }
 
         result = await run_orchestrator(
@@ -437,12 +448,17 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Dispensing pressure is too low", result["reply"])
         self.assertEqual(result["updated_state"]["step"], "reporting")
         self.assertEqual(len(result["updated_state"]["causes"]), 1)
-        mock_get_similar_cases.assert_awaited_once_with("Undersized Dot")
+        mock_get_similar_cases.assert_awaited_once_with(
+            "Undersized Dot",
+            project_id=10,
+            knowledge_pack_id=20,
+        )
 
         call_args = mock_cause_ranking_agent.call_args
         self.assertEqual(call_args.kwargs["defect_type"], "Undersized Dot")
         self.assertIn("Defect identification summary", call_args.kwargs["problem_description"])
         self.assertEqual(call_args.kwargs["similar_cases"], mock_get_similar_cases.return_value)
+        self.assertIn("Approved rule", call_args.kwargs["knowledge_context"])
 
     async def test_ranking_step_without_defect_type_returns_to_questioning(self):
         session_state = {
@@ -503,6 +519,9 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
                     "reasoning": "The defect is continuous and dots are undersized.",
                 }
             ],
+            "project_id": 10,
+            "knowledge_pack_id": 20,
+            "knowledge_context": "Approved action: verify pressure.",
         }
 
         result = await run_orchestrator(
@@ -527,11 +546,14 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call_args.kwargs["causes"], session_state["causes"])
         self.assertIn("Defect identification", call_args.kwargs["problem_description"])
         self.assertEqual(call_args.kwargs["qa_pairs"], session_state["qa_pairs"])
+        self.assertIn("Approved action", call_args.kwargs["knowledge_context"])
 
         save_call_args = mock_save_completed_case.call_args
         self.assertEqual(save_call_args.kwargs["session_id"], "session-1")
         self.assertEqual(save_call_args.kwargs["defect_type"], "Undersized Dot")
         self.assertEqual(save_call_args.kwargs["causes"], session_state["causes"])
+        self.assertEqual(save_call_args.kwargs["project_id"], 10)
+        self.assertEqual(save_call_args.kwargs["knowledge_pack_id"], 20)
         self.assertIn("The dots are too small.", save_call_args.kwargs["problem_description"])
         self.assertIn("Troubleshooting report generated", save_call_args.kwargs["action_plan"])
 

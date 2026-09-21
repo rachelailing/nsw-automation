@@ -1,0 +1,37 @@
+{
+  "materials": [
+    {
+      "name": "Synthetic Silver Epoxy",
+      "aliases": ["test epoxy"],
+      "material_type": "Conductive epoxy",
+      "viscosity_min": 18000,
+      "viscosity_max": 24000,
+      "viscosity_unit": "mPa.s",
+      "handling_notes": "Mix for two minutes before use.",
+      "storage_conditions": "Store refrigerated according to the test procedure."
+    }
+  ],
+  "defect_rules": [
+    {
+      "defect_type": "Undersized Dot",
+      "conditions": {
+        "frequency": "continuous"
+      },
+      "possible_cause": "Synthetic test pressure is below the qualified setting",
+      "category": "Dispensing Parameters",
+      "reasoning": "The synthetic procedure links continuous low volume to insufficient pressure.",
+      "evidence_weight": 0.9
+    }
+  ],
+  "troubleshooting_actions": [
+    {
+      "defect_type": "Undersized Dot",
+      "cause": "Synthetic test pressure is below the qualified setting",
+      "action": "Compare pressure with the synthetic qualified recipe.",
+      "sequence": 1,
+      "safety_notes": "Do not exceed the synthetic process window.",
+      "requires_approval": true
+    }
+  ],
+  "warnings": []
+}

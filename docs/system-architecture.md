@@ -148,23 +148,24 @@ Thresholds and safety rules require human approval. Unreviewed cases may be stor
 
 | Table | Purpose |
 |---|---|
+| `projects` | Scope data to a machine, line, or product |
+| `knowledge_packs` | Version and approval metadata |
+| `knowledge_sources` | Source files, provenance, extraction status, and review metadata |
+| `materials` | Approved material properties and handling information |
+| `defect_rules` | Expert-authored defect/cause relationships and evidence weights |
+| `troubleshooting_actions` | Approved corrective actions, safety notes, and approval requirements |
 | `sessions` | Persisted workflow stage, Q&A, conversation history, and intermediate results |
 | `reference_thresholds` | Deterministic material and process limits |
 | `case_history` | Completed diagnoses, ranked causes, reports, and optional outcome |
+| `case_feedback` | Tested action, confirmed cause, outcome, and reviewer |
 
 ### Planned tables
 
 | Table | Purpose |
 |---|---|
-| `projects` | Scope data to a machine, line, or product |
-| `knowledge_packs` | Version and approval metadata |
-| `materials` | Material properties and handling information |
-| `defect_rules` | Expert-authored defect/cause relationships |
-| `troubleshooting_actions` | Approved corrective actions and constraints |
-| `case_feedback` | Tested action, confirmed cause, outcome, and reviewer |
 | `workflow_definitions` | Versioned Engineer Studio workflow configuration |
 
-All retrieval must eventually be filtered by `project_id` or `knowledge_pack_id` to prevent evidence from unrelated machines or materials from being mixed.
+Threshold and similar-case retrieval are filtered by `project_id` and `knowledge_pack_id` so evidence from unrelated machines or materials is not mixed.
 
 ## 6. Configurable Agent Workflows
 
@@ -203,15 +204,19 @@ The first implementation should be a form-based workflow editor backed by the sa
 - Immediate diameter threshold validation.
 - Text defect classification, cause ranking, and three-step action plan.
 - Similar-case retrieval and completed-case persistence.
+- Outcome feedback persistence with confirmed action and cause.
+- Versioned Projects, Knowledge Packs, and knowledge-source records.
+- Automatic approved Knowledge Pack selection for new sessions.
+- Project- and Knowledge-Pack-scoped threshold and similar-case retrieval.
+- Structured material, expert-rule, and troubleshooting-action retrieval.
+- Knowledge workspace for inspecting approved records and importing reviewable source drafts.
 
 ### Next
 
-1. Capture the answer to "Did this fix the issue?" and the confirmed action/cause.
-2. Add Knowledge Pack schema, seed files, versioning, and provenance.
-3. Scope sessions, thresholds, and cases by Project.
-4. Cite evidence sources in the final diagnosis.
-5. Add an Engineer Studio for editing and approving knowledge.
-6. Add configurable workflows, followed by a drag-and-drop editor.
+1. Add draft approval, version publication, and rollback services.
+2. Cite evidence sources in the final diagnosis UI.
+3. Add structured record editing to the Engineer Studio.
+4. Add configurable workflows, followed by a drag-and-drop editor.
 
 ## 9. Solution Positioning
 

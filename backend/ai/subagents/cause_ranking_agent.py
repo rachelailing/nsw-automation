@@ -122,6 +122,7 @@ async def run(
     problem_description: str,
     qa_pairs: list[dict],
     similar_cases: list[dict] | None = None,
+    knowledge_context: str | None = None,
 ) -> dict:
     """
     Generate ranked causes with confidence scores and reasoning.
@@ -143,7 +144,11 @@ async def run(
 
     """
     rag_context = format_rag_context(similar_cases)
-    system_prompt = load_prompt().replace("{rag_context}", rag_context)
+    system_prompt = (
+        load_prompt()
+        .replace("{knowledge_context}", knowledge_context or "No approved structured content was provided.")
+        .replace("{rag_context}", rag_context)
+    )
     user_context = build_user_context(defect_type, problem_description, qa_pairs)
 
     messages = [

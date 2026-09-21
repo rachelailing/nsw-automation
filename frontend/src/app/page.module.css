@@ -24,16 +24,21 @@
 }
 
 .logoIcon {
-  font-size: 1.6rem;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--primary);
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 
 .logoText {
   font-size: 1.15rem;
   font-weight: 700;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--foreground);
 }
 
 .tagline {
@@ -51,9 +56,45 @@
   font-size: 0.75rem;
 }
 
+.nav {
+  padding: 8px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.navButton,
+.navActive {
+  min-height: 38px;
+  border: 0;
+  border-radius: 5px;
+  padding: 8px 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.navButton:hover,
+.navActive {
+  color: var(--foreground);
+  background: var(--surface-hover);
+}
+
+.navActive {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.workspace {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
 /* Chat area */
 .chatArea {
-  flex: 1;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -80,6 +121,22 @@
     padding: 12px;
     align-items: center;
     gap: 8px;
+  }
+
+  .nav {
+    margin-left: auto;
+    padding: 0;
+    display: flex;
+  }
+
+  .navButton,
+  .navActive {
+    min-height: 34px;
+    text-align: center;
+  }
+
+  .navActive {
+    box-shadow: inset 0 -2px 0 var(--primary);
   }
 
   .tagline {

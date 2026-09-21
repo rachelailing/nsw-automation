@@ -7,9 +7,12 @@
 import { useChat } from "@/hooks/useChat";
 import ChatWindow from "@/components/ChatWindow";
 import ChatInput from "@/components/ChatInput";
+import KnowledgePackPanel from "@/components/KnowledgePackPanel";
+import { useState } from "react";
 import styles from "./page.module.css";
 
 export default function Home() {
+  const [activeView, setActiveView] = useState("diagnose");
   const { sessionId, messages, currentStep, isLoading, error, send } =
     useChat();
 
@@ -18,12 +21,29 @@ export default function Home() {
       {/* Sidebar */}
       <aside className={styles.sidebar}>
         <div className={styles.logo}>
-          <span className={styles.logoIcon}>🔍</span>
+          <span className={styles.logoIcon}>DD</span>
           <h1 className={styles.logoText}>Defect Detective</h1>
         </div>
         <p className={styles.tagline}>
           AI-powered dispensing defect troubleshooter
         </p>
+
+        <nav className={styles.nav} aria-label="Workspace">
+          <button
+            className={activeView === "diagnose" ? styles.navActive : styles.navButton}
+            onClick={() => setActiveView("diagnose")}
+            type="button"
+          >
+            Diagnose
+          </button>
+          <button
+            className={activeView === "knowledge" ? styles.navActive : styles.navButton}
+            onClick={() => setActiveView("knowledge")}
+            type="button"
+          >
+            Knowledge
+          </button>
+        </nav>
 
         <div className={styles.sessionInfo}>
           <small>Session: {sessionId.slice(0, 8)}...</small>
@@ -31,16 +51,22 @@ export default function Home() {
       </aside>
 
       {/* Chat area */}
-      <div className={styles.chatArea}>
-        <ChatWindow
-          messages={messages}
-          isLoading={isLoading}
-          currentStep={currentStep}
-        />
+      <div className={styles.workspace}>
+        {activeView === "diagnose" ? (
+          <div className={styles.chatArea}>
+            <ChatWindow
+              messages={messages}
+              isLoading={isLoading}
+              currentStep={currentStep}
+            />
 
-        {error && <div className={styles.error}>⚠️ {error}</div>}
+            {error && <div className={styles.error}>{error}</div>}
 
-        <ChatInput onSend={send} isLoading={isLoading} />
+            <ChatInput onSend={send} isLoading={isLoading} />
+          </div>
+        ) : (
+          <KnowledgePackPanel />
+        )}
       </div>
     </main>
   );

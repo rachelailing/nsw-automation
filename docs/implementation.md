@@ -40,6 +40,10 @@ Material
 - `backend/main.py`: FastAPI application and CORS configuration.
 - `backend/api/chat.py`: persisted chat endpoint.
 - `backend/db/sessions.py`: creates, loads, and saves complete workflow state.
+- `backend/db/knowledge_packs.py`: selects the latest approved Knowledge Pack for a Project.
+- `backend/db/knowledge_content.py`: retrieves and formats pack-scoped materials, expert rules, and approved actions.
+- `backend/api/knowledge.py`: active-pack inspection and review-first source import API.
+- `backend/services/knowledge_ingestion.py`: PDF/text extraction and structured draft generation.
 
 ### Diagnostic runtime
 
@@ -52,9 +56,16 @@ Material
 
 ### Database
 
+- `projects`: machine, line, or product scope.
+- `knowledge_packs`: versioned and approved knowledge context.
+- `knowledge_sources`: source provenance, extraction status, and review metadata.
+- `materials`: approved material properties and handling facts.
+- `defect_rules`: defect-to-cause evidence, conditions, and weights.
+- `troubleshooting_actions`: ordered actions, safety notes, and approval requirements.
 - `sessions`: full conversation and orchestrator state.
 - `reference_thresholds`: target, minimum, and maximum process values.
 - `case_history`: completed diagnoses, causes, report, and outcome field.
+- `case_feedback`: tested action, confirmed cause, outcome, and reviewer.
 
 ## 3. Reasoning Strategy
 
@@ -96,7 +107,7 @@ Prompts may explain and combine these rules, but the database remains the source
 
 ### 3.3 Historical case evidence
 
-RAG currently retrieves recent cases by defect type. The next version should filter by project, material, machine, and Knowledge Pack before considering semantic similarity.
+RAG retrieves recent cases by defect type within the active Project and Knowledge Pack. A later version should add material and machine filters before considering semantic similarity.
 
 Historical cases must record whether the proposed fix worked. Unconfirmed reports should not be presented as proven solutions.
 
@@ -122,7 +133,9 @@ Create an import script that validates these files and inserts a draft Knowledge
 
 Do not load all files into every prompt. Retrieve only records applicable to the active project, material, defect, and workflow stage.
 
-### 4.2 Proposed tables
+### 4.2 Data model
+
+The `projects`, `knowledge_packs`, `knowledge_sources`, `materials`, `defect_rules`, `troubleshooting_actions`, and `case_feedback` tables are implemented. Source import and extraction preview are implemented; approval and version publication remain planned.
 
 ```sql
 projects (
@@ -154,7 +167,7 @@ case_feedback (
 )
 ```
 
-Add `project_id` and `knowledge_pack_id` foreign keys to sessions, thresholds, and case history.
+The `sessions`, `reference_thresholds`, and `case_history` tables include `project_id` and `knowledge_pack_id` foreign keys.
 
 ### 4.3 Approval lifecycle
 
@@ -166,15 +179,16 @@ Only one approved version should be active for a project and process at a time. 
 
 ## 5. Closed-Loop Learning
 
-The immediate next implementation should handle the user's response to "Did this fix the issue?"
+The runtime handles the user's response to "Did this fix the issue?" and records the resulting feedback.
 
 ### Backend behavior
 
-1. Replace the current `done` placeholder with a feedback stage.
-2. Interpret yes/no without relying only on exact string matching.
-3. Ask which action was attempted when ambiguous.
+1. Interpret yes/no without relying only on exact string matching.
+2. Ask which action was attempted when ambiguous.
+3. Ask for the confirmed cause.
 4. Store the outcome in `case_feedback` and mirror the summary in `case_history.outcome`.
-5. Mark evidence as unreviewed until an engineer confirms it.
+
+Engineer review status and knowledge promotion remain planned; feedback must not automatically modify approved knowledge.
 
 ### Retrieval behavior
 
@@ -287,10 +301,9 @@ Maintain a versioned set of expert-reviewed scenarios containing expected thresh
 
 ### Milestone 2 - establish governed knowledge
 
-- Add Projects and Knowledge Pack tables.
-- Import initial expert rules and actions.
+- Build Knowledge Pack import, review, and publication services.
+- Expand the starter seed into an expert-reviewed production knowledge set.
 - Add provenance and approval status.
-- Scope all retrieval operations.
 - Cite evidence in reports.
 
 ### Milestone 3 - provide engineer controls

@@ -48,11 +48,19 @@ def load_prompt(filename: str) -> str:
         return f.read()
 
 
-async def get_similar_cases(defect_type: str) -> list[dict]:
+async def get_similar_cases(
+    defect_type: str,
+    project_id: int | None = None,
+    knowledge_pack_id: int | None = None,
+) -> list[dict]:
     """Lazy-load the database dependency only when cause ranking needs RAG."""
     from db.case_history import get_similar_cases as fetch_similar_cases
 
-    return await fetch_similar_cases(defect_type)
+    return await fetch_similar_cases(
+        defect_type,
+        project_id=project_id,
+        knowledge_pack_id=knowledge_pack_id,
+    )
 
 
 async def save_completed_case(
@@ -61,6 +69,8 @@ async def save_completed_case(
     defect_type: str,
     causes: list[dict],
     action_plan: str,
+    project_id: int | None = None,
+    knowledge_pack_id: int | None = None,
 ) -> dict:
     """Lazy-load the database dependency only when a session is complete."""
     from db.case_history import save_case
@@ -71,6 +81,8 @@ async def save_completed_case(
         defect_type=defect_type,
         causes=causes,
         action_plan=action_plan,
+        project_id=project_id,
+        knowledge_pack_id=knowledge_pack_id,
     )
 
 
@@ -78,6 +90,8 @@ async def build_reference_threshold_context(
     problem_description: str,
     qa_pairs: list[dict],
     defect_type: str | None = None,
+    project_id: int | None = None,
+    knowledge_pack_id: int | None = None,
 ) -> tuple[str, dict | None]:
     """Return formatted threshold checks when numeric parameters are present."""
     try:
@@ -90,11 +104,34 @@ async def build_reference_threshold_context(
             problem_description=problem_description,
             qa_pairs=qa_pairs,
             defect_type=defect_type,
+            project_id=project_id,
+            knowledge_pack_id=knowledge_pack_id,
         )
         return format_threshold_context(evaluation), evaluation
     except Exception as e:
         print(f"Reference threshold check skipped: {e}")
         return "", None
+
+
+async def build_knowledge_pack_context(
+    knowledge_pack_id: int | None,
+    defect_type: str | None = None,
+) -> tuple[str, dict]:
+    """Load structured evidence from the session's approved Knowledge Pack."""
+    if knowledge_pack_id is None:
+        return "", {}
+
+    try:
+        from db.knowledge_content import get_knowledge_content, format_knowledge_context
+
+        content = await get_knowledge_content(
+            knowledge_pack_id=knowledge_pack_id,
+            defect_type=defect_type,
+        )
+        return format_knowledge_context(content), content
+    except Exception as e:
+        print(f"Knowledge Pack content lookup skipped: {e}")
+        return "", {}
 
 
 PHOTO_ONLY_MESSAGES = {
@@ -537,14 +574,28 @@ async def rank_causes(session_state: dict, qa_pairs: list[dict]) -> dict:
     defect_type = session_state.get("defect_type")
     similar_cases = session_state.get("similar_cases")
     if similar_cases is None:
-        similar_cases = await get_similar_cases(defect_type)
+        similar_cases = await get_similar_cases(
+            defect_type,
+            project_id=session_state.get("project_id"),
+            knowledge_pack_id=session_state.get("knowledge_pack_id"),
+        )
         session_state["similar_cases"] = similar_cases
+
+    knowledge_context = session_state.get("knowledge_context")
+    if knowledge_context is None:
+        knowledge_context, knowledge_content = await build_knowledge_pack_context(
+            knowledge_pack_id=session_state.get("knowledge_pack_id"),
+            defect_type=defect_type,
+        )
+        session_state["knowledge_context"] = knowledge_context
+        session_state["knowledge_content"] = knowledge_content
 
     ranking_result = await run_cause_ranking_agent(
         defect_type=defect_type,
         problem_description=build_ranking_problem_context(session_state),
         qa_pairs=qa_pairs,
         similar_cases=similar_cases,
+        knowledge_context=knowledge_context,
     )
     session_state["cause_ranking_result"] = ranking_result
     session_state["causes"] = ranking_result.get("causes", [])
@@ -565,6 +616,7 @@ async def generate_report_and_save_case(
         causes=causes,
         problem_description=report_context,
         qa_pairs=qa_pairs,
+        knowledge_context=session_state.get("knowledge_context"),
     )
 
     session_state["report"] = report
@@ -577,6 +629,8 @@ async def generate_report_and_save_case(
             defect_type=defect_type,
             causes=causes,
             action_plan=format_report_reply(report),
+            project_id=session_state.get("project_id"),
+            knowledge_pack_id=session_state.get("knowledge_pack_id"),
         )
         session_state["case_history_saved"] = True
         session_state["case_history_id"] = saved_case.get("id")
@@ -655,6 +709,8 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
             threshold_context, threshold_evaluation = await build_reference_threshold_context(
                 problem_description=problem_description,
                 qa_pairs=qa_pairs,
+                project_id=session_state.get("project_id"),
+                knowledge_pack_id=session_state.get("knowledge_pack_id"),
             )
             if threshold_context:
                 session_state["reference_threshold_context"] = threshold_context
@@ -713,6 +769,8 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
                 threshold_context, threshold_evaluation = await build_reference_threshold_context(
                     problem_description=problem_description,
                     qa_pairs=qa_pairs,
+                    project_id=session_state.get("project_id"),
+                    knowledge_pack_id=session_state.get("knowledge_pack_id"),
                 )
                 if threshold_context:
                     session_state["reference_threshold_context"] = threshold_context
