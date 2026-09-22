@@ -25,10 +25,34 @@ The Operator Console should remain simple. Advanced configuration belongs in a s
 4. **Controlled learning:** historical outcomes become trusted knowledge only after validation.
 5. **Scoped context:** do not mix unrelated machines, materials, or production lines.
 6. **Human authority:** engineers retain control over specifications, safety rules, and published workflows.
+7. **Safe automation:** automate repeatable validation and low-risk approvals, while escalating safety or process-limit changes to engineers.
 
-## 4. Functional Requirements
+## 4. Company Brief Alignment
 
-### 4.1 Guided diagnostic conversation
+The company brief defines five core completion steps. The product must keep these visible in both implementation and demo flow:
+
+| Company requirement | Product response | Current status |
+|---|---|---|
+| Discover the problem with about five smart questions | Five-stage, one-question-at-a-time diagnostic flow | Implemented |
+| Identify the dispensing defect | Defect classification with confidence and reasoning | Implemented |
+| Analyse several possible causes | Ranked material, air, parameter, nozzle, and equipment causes | Implemented |
+| Generate a troubleshooting score and explain why | Confidence score for the defect and each ranked cause, linked to evidence | Implemented; evidence labels planned |
+| Recommend what to check first | Exactly three ordered troubleshooting actions | Implemented |
+| Generate a report | Downloadable PDF from the completed session | Implemented |
+
+Bonus alignment:
+
+| Bonus challenge | Status |
+|---|---|
+| Dynamic follow-up questions | Partly implemented through stage-aware clarification; deeper branching planned |
+| Image recognition | Backend exists; user interface deferred |
+| Dispensing quality score | Planned; cause and defect confidence already exist |
+| AI learning database | Implemented through case history and confirmed outcomes |
+| PDF troubleshooting report | Implemented |
+
+## 5. Functional Requirements
+
+### 5.1 Guided diagnostic conversation
 
 The current baseline flow must collect:
 
@@ -42,7 +66,7 @@ The interface may combine related items in one message. It must not repeatedly a
 
 Future Knowledge Packs may add optional questions for a specific process, but required questions must remain governed by the published workflow.
 
-### 4.2 Threshold validation
+### 5.2 Threshold validation
 
 When the user provides a supported numeric measurement, the system must:
 
@@ -55,7 +79,7 @@ When the user provides a supported numeric measurement, the system must:
 
 Supported or planned parameters include diameter, dispensing volume, pressure, speed or flow rate, dispensing time, nozzle size, and dispensing height. Every value must have an explicit unit.
 
-### 4.3 Defect identification
+### 5.3 Defect identification
 
 The system must classify the most likely defect and provide a confidence score and reasoning. Initial defect classes are:
 
@@ -65,7 +89,7 @@ The system must classify the most likely defect and provide a confidence score a
 - Irregular Shape
 - Excessive Spreading
 
-### 4.4 Cause ranking
+### 5.4 Cause ranking
 
 The system must produce ranked probable causes. Each cause must include:
 
@@ -77,7 +101,7 @@ The system must produce ranked probable causes. Each cause must include:
 
 Cause categories include material condition, trapped air, dispensing parameters, nozzle condition, and equipment condition.
 
-### 4.5 Action plan and report
+### 5.5 Action plan and report
 
 The final response must include:
 
@@ -88,7 +112,9 @@ The final response must include:
 
 A completed case must be saved once, without duplicate history records if the report is requested again.
 
-### 4.6 Outcome feedback
+The downloadable PDF must contain the problem description, defect, analysis, ranked causes, confidence, recommended actions, supporting evidence, and confirmed outcome or engineer notes when available.
+
+### 5.6 Outcome feedback
 
 The next release must process the technician's response after the action plan. It must capture:
 
@@ -101,14 +127,14 @@ The next release must process the technician's response after the action plan. I
 
 Negative outcomes are valuable and must be retained so ineffective recommendations are not repeatedly promoted.
 
-### 4.7 Session persistence
+### 5.7 Session persistence
 
 - Every browser session must have a unique session ID.
 - Workflow stage, Q&A, intermediate results, and conversation history must persist in Supabase.
 - Multiple simultaneous users must not share state.
 - A user must be able to start a fresh case without manually clearing browser storage in the production UI.
 
-### 4.8 Knowledge Packs
+### 5.8 Knowledge Packs
 
 An engineer must be able to define a versioned Knowledge Pack containing:
 
@@ -124,11 +150,11 @@ An engineer must be able to define a versioned Knowledge Pack containing:
 
 Only approved versions may influence production recommendations as authoritative evidence.
 
-### 4.9 Projects and scoping
+### 5.9 Projects and scoping
 
 The planned Projects feature must scope sessions, thresholds, Knowledge Packs, and case-history retrieval to a machine, production line, or product. Global fallback knowledge must be explicitly labeled.
 
-### 4.10 Engineer Studio and workflow customization
+### 5.10 Engineer Studio and workflow customization
 
 The planned Engineer Studio should allow authorized users to:
 
@@ -141,7 +167,33 @@ The planned Engineer Studio should allow authorized users to:
 
 Drag-and-drop is a desired interaction, not the workflow storage format. Workflow definitions must be stored as validated, versioned structured data.
 
-## 5. Data Requirements
+### 5.11 MCP integration
+
+The planned MCP layer must:
+
+- Expose small, typed tools rather than unrestricted database access.
+- Require Project, session, user-role, and Knowledge Pack context.
+- Start with read-only tools for thresholds, rules, cases, and provenance.
+- Log tool name, inputs, output reference, duration, caller, and result.
+- Fail safely when a tool or external system is unavailable.
+- Prevent agents from using MCP write tools to bypass approval and publication rules.
+
+### 5.12 Automated Knowledge Pack approval
+
+Every proposed Knowledge Pack change must pass automated checks for:
+
+- Required fields and valid structure.
+- Units, ranges, and numeric consistency.
+- Source identity, revision, and checksum.
+- Duplicate and conflicting records.
+- Project and material applicability.
+- Prompt-injection or unsafe instructions in uploaded content.
+- Regression tests against reviewed diagnostic scenarios.
+- Risk level based on which fields changed.
+
+The system may automatically approve only low-risk changes when every required check passes. Thresholds, safety notes, machine settings, conflicting rules, and low-confidence extraction always require an engineer. Approval must create a new version and retain the previous version for audit and rollback.
+
+## 6. Data Requirements
 
 ### Authoritative data
 
@@ -166,7 +218,7 @@ Drag-and-drop is a desired interaction, not the workflow storage format. Workflo
 
 Synthetic demonstration data must be labeled as synthetic. It must not be presented as production evidence.
 
-## 6. Non-Functional Requirements
+## 7. Non-Functional Requirements
 
 ### Accuracy and safety
 
@@ -187,6 +239,7 @@ Synthetic demonstration data must be labeled as synthetic. It must not be presen
 - Supabase Row Level Security must be enabled with least-privilege policies.
 - Roles must separate operators, technicians, and knowledge administrators.
 - User input and uploaded content must be treated as untrusted.
+- MCP servers and tools must use least privilege, scoped credentials, and auditable calls.
 
 ### Reliability and usability
 
@@ -201,7 +254,7 @@ Synthetic demonstration data must be labeled as synthetic. It must not be presen
 - Independent model tasks may run in parallel where applicable.
 - The UI must display a stable loading state during multi-agent processing.
 
-## 7. Current Scope Status
+## 8. Current Scope Status
 
 | Capability | Status |
 |---|---|
@@ -221,11 +274,15 @@ Synthetic demonstration data must be labeled as synthetic. It must not be presen
 | Knowledge Pack approval and publication UI | Planned |
 | Project-scoped retrieval | Backend implemented; project selection UI planned |
 | Evidence citations in UI | Planned |
+| MCP read-only knowledge tools | Planned |
+| Automated validation and risk scoring | Planned |
+| Low-risk automatic approval | Planned |
+| Mandatory engineer gate for safety and thresholds | Planned |
 | Engineer Studio | Planned |
 | Drag-and-drop workflow builder | Future |
 | Image upload UI | Deferred; backend analysis code exists |
 
-## 8. Acceptance Scenario
+## 9. Acceptance Scenario
 
 Given a Solder Paste Knowledge Pack with a diameter range of `0.40-0.60 mm`:
 

@@ -10,6 +10,7 @@ The working prototype uses:
 | Backend | FastAPI | API boundary and workflow execution |
 | AI | OpenAI structured outputs | Defect classification, cause ranking, action plan |
 | Database | Supabase PostgreSQL | Sessions, thresholds, and case history |
+| Tool integration | MCP, planned | Controlled access to knowledge and future factory systems |
 | Prototype reference | n8n and Telegram | Validated conversation sequence and expected response style |
 
 The website now reproduces the core n8n workflow:
@@ -117,6 +118,23 @@ Historical cases must record whether the proposed fix worked. Unconfirmed report
 
 AI subagents are used for classification, prioritization, and plain-language explanations. Their outputs use structured Pydantic schemas and low temperature. Model confidence must never be presented as equivalent to a deterministic threshold result.
 
+### 3.5 MCP tool contracts
+
+Implement MCP as a thin adapter over existing service functions, not as a second source of business logic. FastAPI and the database services remain authoritative.
+
+First MCP server scope:
+
+```text
+knowledge.get_active_pack
+knowledge.find_threshold
+knowledge.find_defect_rules
+knowledge.find_actions
+cases.find_similar
+sources.get_provenance
+```
+
+Each tool must validate typed input, enforce project scope, return record IDs and versions, and emit an audit event. Start read-only. A later `proposals.create_draft` tool may submit changes for validation but must not approve or publish them.
+
 ## 4. Knowledge Pack Design
 
 ### 4.1 Authoring and runtime model
@@ -178,6 +196,33 @@ Draft -> In Review -> Approved -> Superseded -> Archived
 ```
 
 Only one approved version should be active for a project and process at a time. Publishing a new version must not mutate the historical version referenced by completed cases.
+
+### 4.4 Automated validation and approval
+
+Use a rule-based gate before any AI recommendation about approval. The model may extract or summarize knowledge, but code decides whether required checks pass.
+
+Validation pipeline:
+
+1. Validate the structured schema and required fields.
+2. Normalize units and reject impossible or incomplete ranges.
+3. Verify source metadata and detect duplicate checksums.
+4. Compare proposed records with the active version and classify each change.
+5. Detect contradictions, overlapping ranges, and conflicting actions.
+6. Run a versioned regression set and compare diagnosis outputs.
+7. Calculate a validation score and risk level.
+8. Auto-approve only when policy allows; otherwise create an engineer-review task.
+9. Publish in one transaction and retain the prior version for rollback.
+
+Suggested policy:
+
+| Change type | Decision |
+|---|---|
+| Alias, spelling, formatting, or non-safety description | May auto-approve after all checks pass |
+| New rule supported by an approved source and passing regression tests | Engineer review initially; consider automation after evidence is strong |
+| Threshold, unit, safety note, machine setting, or action requiring approval | Engineer approval always required |
+| Conflict, missing source, low extraction confidence, or failed regression | Reject or return for correction |
+
+Store an approval decision record containing the policy version, checks, score, risk, decision reason, actor, timestamp, and resulting Knowledge Pack version.
 
 ## 5. Closed-Loop Learning
 
@@ -287,6 +332,10 @@ The UI can label evidence as Specification, Expert Rule, Similar Case, or AI Inf
 - Project-scoped threshold and case retrieval.
 - Outcome feedback persistence.
 - RLS behavior for each role.
+- MCP tool contracts, project scoping, unavailable-tool behavior, and audit events.
+- Automatic approval for an allowed low-risk change.
+- Mandatory engineer review for a threshold or safety change.
+- Atomic publication and rollback of a Knowledge Pack version.
 
 ### Evaluation set
 
@@ -294,16 +343,16 @@ Maintain a versioned set of expert-reviewed scenarios containing expected thresh
 
 ## 9. Delivery Roadmap
 
-### Milestone 1 - close the current loop
+### Milestone 1 - harden the current loop
 
 - Add a New Case control in the UI.
-- Process fix feedback.
-- Save successful and unsuccessful outcomes.
-- Add one complete end-to-end integration test.
+- Add one complete end-to-end integration test covering diagnosis, feedback, persistence, and PDF download.
+- Show evidence references and configuration versions in the final result.
 
 ### Milestone 2 - establish governed knowledge
 
-- Build Knowledge Pack import, review, and publication services.
+- Build automated validation, risk scoring, review, publication, and rollback services.
+- Add a read-only MCP server over thresholds, rules, cases, actions, and provenance.
 - Expand the starter seed into an expert-reviewed production knowledge set.
 - Add provenance and approval status.
 - Cite evidence in reports.
@@ -329,4 +378,7 @@ The next release is complete when:
 - The final question accepts and stores a real outcome.
 - Successful and unsuccessful actions are distinguishable.
 - A completed case records its evidence and configuration versions.
+- Every proposed knowledge change receives a recorded validation and risk decision.
+- Low-risk changes can follow the automated policy path, while threshold and safety changes cannot bypass an engineer.
+- MCP knowledge tools are read-only, project-scoped, and audited.
 - All current tests and the end-to-end acceptance scenario pass.

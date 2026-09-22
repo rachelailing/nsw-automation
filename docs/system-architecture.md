@@ -17,26 +17,37 @@ This design keeps numerical decisions testable, AI reasoning explainable, and le
 ## 2. System Context
 
 ```text
-Operator Console                         Engineer Studio (roadmap)
-       |                                          |
-       +---------------- API Layer ---------------+
-                          |
-                Diagnostic Workflow Runtime
-                 - conversation state
-                 - workflow stages
-                 - subagent orchestration
-                          |
-       +------------------+-------------------+
-       |                  |                   |
-Threshold Engine     AI Subagents       Evidence Fusion
-       |                  |                   |
-       +------------- Knowledge Service -----+
-                          |
-       +------------------+-------------------+
-       |                  |                   |
-Specifications       Expert Rules       Case Outcomes
-                          |
-                       Supabase
+Operator Console [current]             Engineer Studio [roadmap]
+          |                                      |
+          +----------- Next.js frontend --------+
+                             |
+                      FastAPI API boundary
+                   authentication and validation
+                             |
+                  Diagnostic workflow runtime
+              state machine, orchestration and policy
+                             |
+        +--------------------+---------------------+
+        |                    |                     |
+ AI subagents [current]  Domain services       MCP client [planned]
+ - classify defect       [current]             - typed tool calls
+ - rank causes           - threshold checks    - access control
+ - write report          - evidence retrieval  - audit events
+                        - PDF generation              |
+        |                    |             +---------+----------+
+        |                    |             |                    |
+        |                    |       Knowledge MCP        Factory MCPs
+        |                    |       [first target]       [future]
+        |                    |       - thresholds        - QMS / MES
+        |                    |       - rules             - recipes
+        |                    |       - cases             - maintenance
+        +--------------------+-------------+--------------+
+                                             |
+                                Supabase and controlled storage
+                         projects, sessions, knowledge, cases, audit log
+
+Knowledge governance [planned]:
+source extraction -> validation -> risk policy -> approval -> version publish
 ```
 
 ### Current user-facing applications
@@ -64,7 +75,7 @@ The orchestrator is a persisted state machine. The current workflow uses five sh
 4. Recent parameter or equipment changes.
 5. One location or multiple locations.
 
-After stage 2, a measured diameter is checked immediately against the reference table. After stage 4, the workflow automatically runs defect identification, cause ranking, action-plan generation, and case-history persistence.
+After stage 2, a measured diameter is checked immediately against the reference table. After stage 5, the workflow automatically runs defect identification, cause ranking, action-plan generation, and case-history persistence.
 
 The fixed core stages prevent repeated or irrelevant questions. Future Knowledge Packs may configure wording and optional questions without bypassing required evidence.
 
@@ -104,6 +115,22 @@ Cause ranking should distinguish the origin of each claim:
 
 The roadmap includes displaying these sources beside each recommendation.
 
+### 3.7 MCP tool gateway
+
+Model Context Protocol (MCP) is the planned tool-access layer between the workflow runtime and engineering systems. MCP is not another AI agent and does not replace FastAPI or Supabase. It gives agents a standard, controlled contract for calling approved tools.
+
+Initial read-only MCP tools should include:
+
+- `get_active_knowledge_pack(project_id)`
+- `find_reference_threshold(material, parameter)`
+- `retrieve_defect_rules(defect_type, material)`
+- `retrieve_similar_cases(project_id, defect_type)`
+- `get_source_provenance(source_id)`
+
+Later write tools may create draft proposals, but they must not publish production knowledge directly. Every tool call must carry the Project, user role, session ID, and Knowledge Pack version and must be logged.
+
+MCP creates a clean path to future factory integrations such as a quality management system, manufacturing execution system, equipment recipe store, maintenance history, or controlled document repository. The diagnostic workflow must still work with the existing internal services when an external MCP server is unavailable.
+
 ## 4. Knowledge Architecture
 
 ### 4.1 Knowledge Packs
@@ -141,6 +168,26 @@ Recommendation -> technician tests action -> outcome captured
 ```
 
 Thresholds and safety rules require human approval. Unreviewed cases may be stored but must be labeled as unverified evidence.
+
+### 4.4 Policy-gated Knowledge Pack approval
+
+The main planned differentiator is an approval engine that reduces manual review without allowing unsafe knowledge to publish itself.
+
+```text
+Source upload
+  -> extract structured records
+  -> validate schema, units, source and duplicates
+  -> detect conflicts with approved knowledge
+  -> run regression scenarios
+  -> calculate risk and validation score
+       | low risk + all checks pass -> automatic approval
+       | medium risk                -> engineer review
+       | safety or threshold change -> mandatory engineer approval
+  -> publish a new immutable Knowledge Pack version
+  -> keep the previous version available for rollback
+```
+
+Automatic approval is limited to low-risk changes such as aliases, formatting corrections, or non-safety descriptive content. Numeric limits, safety instructions, equipment settings, and conflicting rules always require an engineer. Each decision records the checks performed, score, policy version, reason, and reviewer or automation identity.
 
 ## 5. Data Architecture
 
@@ -193,6 +240,9 @@ The first implementation should be a form-based workflow editor backed by the sa
 - Fail safely when threshold data is missing; never fabricate accepted limits.
 - Separate AI confidence from deterministic pass/fail results.
 - Require human approval before promoted knowledge affects production recommendations.
+- Allow automatic approval only when a versioned policy explicitly classifies the change as low risk.
+- Keep MCP tools least-privileged, project-scoped, authenticated, and fully audited.
+- Make write-capable MCP tools create drafts by default; publishing requires the approval service.
 
 ## 8. Current Status and Roadmap
 
@@ -214,11 +264,12 @@ The first implementation should be a form-based workflow editor backed by the sa
 
 ### Next
 
-1. Add draft approval, version publication, and rollback services.
-2. Cite evidence sources in the final diagnosis UI.
-3. Add structured record editing to the Engineer Studio.
-4. Add configurable workflows, followed by a drag-and-drop editor.
+1. Add policy-based validation, risk scoring, approval, publication, and rollback.
+2. Add a read-only MCP server for thresholds, rules, cases, and source provenance.
+3. Cite evidence sources and Knowledge Pack versions in the diagnosis and PDF.
+4. Add structured record editing to the Engineer Studio.
+5. Add configurable workflows, followed by a drag-and-drop editor.
 
 ## 9. Solution Positioning
 
-The solution is not differentiated merely by using multiple agents. Its key contribution is a closed-loop diagnostic system that combines deterministic engineering limits, approved troubleshooting knowledge, and machine-specific historical outcomes to produce explainable recommendations that improve through validated technician feedback.
+The solution is not differentiated merely by using multiple agents. Its key contribution is a governed troubleshooting system that combines deterministic engineering limits, explainable AI, machine-specific outcomes, MCP-based tool access, and policy-gated Knowledge Pack approval. This allows low-risk knowledge updates to move quickly while keeping engineers in control of safety and process limits.
