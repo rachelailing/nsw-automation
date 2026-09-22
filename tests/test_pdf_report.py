@@ -84,6 +84,8 @@ class TestPdfReport(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Oversized Dot", text)
         self.assertIn("0.95 mm", text)
         self.assertIn("Verify pressure against the approved recipe", text)
+        self.assertNotIn("Diagnostic Evidence", text)
+        self.assertNotIn("What material is being dispensed?", text)
 
     @patch("api.report.get_session", new_callable=AsyncMock)
     async def test_report_requires_completed_analysis(self, mock_get_session):

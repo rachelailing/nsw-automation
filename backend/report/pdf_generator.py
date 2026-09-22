@@ -151,7 +151,6 @@ async def generate_pdf(session_data: dict) -> bytes:
     report = state.get("report") or {}
     defect = state.get("defect_result") or {}
     causes = state.get("causes") or []
-    qa_pairs = state.get("qa_pairs") or []
     threshold_checks = (state.get("reference_threshold_evaluation") or {}).get("checks") or []
     styles = _styles()
     buffer = BytesIO()
@@ -267,28 +266,23 @@ async def generate_pdf(session_data: dict) -> bytes:
         for recommendation in recommendations:
             story.append(Paragraph(f"- {_text(recommendation)}", styles["body"]))
 
-    if qa_pairs:
-        story.append(Paragraph("Diagnostic Evidence", styles["section"]))
-        for qa in qa_pairs:
-            story.append(
-                KeepTogether(
-                    [
-                        Paragraph(f"<b>Q:</b> {_text(qa.get('question'))}", styles["body"]),
-                        Paragraph(f"<b>A:</b> {_text(qa.get('answer'))}", styles["body"]),
-                        Spacer(1, 1 * mm),
-                    ]
-                )
-            )
-
     if state.get("feedback_action"):
-        story.append(Paragraph("Confirmed Outcome", styles["section"]))
         outcome = "Resolved" if state.get("feedback_fixed") else "Not resolved"
-        story.extend(
-            [
-                Paragraph(f"<b>Outcome:</b> {_text(outcome)}", styles["body"]),
-                Paragraph(f"<b>Action attempted:</b> {_text(state.get('feedback_action'))}", styles["body"]),
-                Paragraph(f"<b>Confirmed cause:</b> {_text(state.get('feedback_cause'))}", styles["body"]),
-            ]
+        story.append(
+            KeepTogether(
+                [
+                    Paragraph("Confirmed Outcome", styles["section"]),
+                    Paragraph(f"<b>Outcome:</b> {_text(outcome)}", styles["body"]),
+                    Paragraph(
+                        f"<b>Action attempted:</b> {_text(state.get('feedback_action'))}",
+                        styles["body"],
+                    ),
+                    Paragraph(
+                        f"<b>Confirmed cause:</b> {_text(state.get('feedback_cause'))}",
+                        styles["body"],
+                    ),
+                ]
+            )
         )
 
     story.extend(

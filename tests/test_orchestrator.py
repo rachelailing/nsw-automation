@@ -150,6 +150,109 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result["updated_state"]["qa_pairs"], [])
 
+    async def test_future_location_answer_is_saved_while_frequency_is_reasked(self):
+        session_state = {
+            "step": "questioning",
+            "problem_description": "The solder paste dot is oversized.",
+            "qa_pairs": [],
+            "pending_questions": [],
+            "diagnostic_stage": "frequency",
+            "workflow_started": True,
+        }
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message="It is happening across multiple locations on the board.",
+            session_state=session_state,
+        )
+
+        self.assertEqual(result["step"], "questioning")
+        self.assertIn("noted that detail for the location step", result["reply"])
+        self.assertIn("how often", result["reply"])
+        self.assertEqual(result["updated_state"]["diagnostic_stage"], "frequency")
+        self.assertEqual(result["updated_state"]["qa_pairs"], [])
+        self.assertEqual(
+            result["updated_state"]["deferred_diagnostic_answers"]["location"],
+            "It is happening across multiple locations on the board.",
+        )
+
+    @patch("ai.orchestrator.generate_report_and_save_case", new_callable=AsyncMock)
+    @patch("ai.orchestrator.rank_causes", new_callable=AsyncMock)
+    @patch("ai.orchestrator.run_text_defect_agent", new_callable=AsyncMock)
+    async def test_saved_location_answer_is_not_asked_again(
+        self,
+        mock_text_defect_agent,
+        mock_rank_causes,
+        mock_generate_report,
+    ):
+        mock_text_defect_agent.return_value = {
+            "defect_type": "Oversized Dot",
+            "confidence": 0.95,
+            "reasoning": "The measured dot exceeds the maximum diameter.",
+        }
+
+        async def rank_causes_side_effect(state, qa_pairs):
+            state["causes"] = [{
+                "rank": 1,
+                "cause": "Dispensing pressure is too high",
+                "confidence": 0.85,
+                "reasoning": "The defect is continuous across multiple locations.",
+            }]
+            return {"causes": state["causes"]}
+
+        async def generate_report_side_effect(session_id, state, qa_pairs):
+            state["report"] = {
+                "summary": "An oversized dot was identified.",
+                "action_plan": [{
+                    "step_number": 1,
+                    "action": "Verify the dispensing pressure.",
+                }],
+            }
+            state["step"] = "awaiting_feedback"
+            return state["report"]
+
+        mock_rank_causes.side_effect = rank_causes_side_effect
+        mock_generate_report.side_effect = generate_report_side_effect
+
+        session_state = {
+            "step": "questioning",
+            "problem_description": "The solder paste dot is oversized.",
+            "qa_pairs": [],
+            "pending_questions": [],
+            "diagnostic_stage": "frequency",
+            "workflow_started": True,
+            "reference_threshold_evaluation": {"checks": []},
+        }
+
+        location_result = await run_orchestrator(
+            session_id="session-1",
+            user_message="It is happening across multiple locations on the board.",
+            session_state=session_state,
+        )
+        frequency_result = await run_orchestrator(
+            session_id="session-1",
+            user_message="It happens continuously on every part.",
+            session_state=location_result["updated_state"],
+        )
+        final_result = await run_orchestrator(
+            session_id="session-1",
+            user_message="No parameters changed, but this is a new machine.",
+            session_state=frequency_result["updated_state"],
+        )
+
+        self.assertEqual(final_result["step"], "awaiting_feedback")
+        self.assertNotIn("one specific location", final_result["reply"])
+        self.assertEqual(final_result["updated_state"]["diagnostic_stage"], "complete")
+        location_answers = [
+            pair for pair in final_result["updated_state"]["qa_pairs"]
+            if pair["question"].startswith("Got it. Just one last detail")
+        ]
+        self.assertEqual(len(location_answers), 1)
+        self.assertTrue(location_answers[0]["captured_early"])
+        mock_text_defect_agent.assert_awaited_once()
+        mock_rank_causes.assert_awaited_once()
+        mock_generate_report.assert_awaited_once()
+
     async def test_frequency_and_changes_are_asked_separately(self):
         session_state = {
             "step": "questioning",
@@ -622,6 +725,59 @@ class TestOrchestrator(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["step"], "ranking")
         self.assertIn("ranked causes", result["reply"])
+
+    async def test_natural_yes_feedback_records_outcome_and_action(self):
+        session_state = {
+            "step": "awaiting_feedback",
+            "qa_pairs": [],
+            "case_history_id": 123,
+        }
+        message = "Yes, reducing the dispensing pressure fixed the oversized dots."
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message=message,
+            session_state=session_state,
+        )
+
+        self.assertEqual(result["step"], "awaiting_feedback_cause")
+        self.assertTrue(result["updated_state"]["feedback_fixed"])
+        self.assertEqual(result["updated_state"]["feedback_action"], message)
+        self.assertIn("root cause", result["reply"])
+
+    async def test_plain_yes_still_requests_the_attempted_action(self):
+        session_state = {
+            "step": "awaiting_feedback",
+            "qa_pairs": [],
+            "case_history_id": 123,
+        }
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message="yes",
+            session_state=session_state,
+        )
+
+        self.assertEqual(result["step"], "awaiting_feedback_action")
+        self.assertTrue(result["updated_state"]["feedback_fixed"])
+        self.assertIn("Which recommended action", result["reply"])
+
+    async def test_natural_negative_feedback_is_not_misread_as_positive(self):
+        session_state = {
+            "step": "awaiting_feedback",
+            "qa_pairs": [],
+            "case_history_id": 123,
+        }
+
+        result = await run_orchestrator(
+            session_id="session-1",
+            user_message="No, reducing the pressure did not fix the issue.",
+            session_state=session_state,
+        )
+
+        self.assertEqual(result["step"], "awaiting_feedback_cause")
+        self.assertFalse(result["updated_state"]["feedback_fixed"])
+        self.assertIn("root cause", result["reply"])
 
 
 if __name__ == "__main__":

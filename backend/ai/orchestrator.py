@@ -30,15 +30,50 @@ from ai.subagents.report_agent import run as run_report_agent
 
 
 def parse_fixed_response(message: str) -> bool | None:
-    value = message.strip().lower()
+    value = normalize_answer(message)
 
-    if value in {"no", "n", "not fixed", "did not work", "not resolved"}:
+    negative_patterns = (
+        r"^(?:no|n)\b",
+        r"\b(?:did not|didnt|does not|doesnt)\s+(?:fix|work|resolve)",
+        r"\bnot\s+(?:fixed|resolved|working)\b",
+        r"\bissue (?:remains|is still there)\b",
+    )
+    if any(re.search(pattern, value) for pattern in negative_patterns):
         return False
 
-    if value in {"yes", "y", "fixed", "it worked", "resolved"}:
+    positive_patterns = (
+        r"^(?:yes|y)\b",
+        r"\b(?:fixed|resolved)\b",
+        r"\b(?:it|that|this)\s+(?:worked|works)\b",
+    )
+    if any(re.search(pattern, value) for pattern in positive_patterns):
         return True
 
     return None
+
+
+def describes_attempted_action(message: str) -> bool:
+    """Return whether feedback clearly includes a troubleshooting action."""
+    value = normalize_answer(message)
+    return any(
+        re.search(rf"\b{verb}\w*\b", value)
+        for verb in (
+            "adjust",
+            "calibrat",
+            "chang",
+            "check",
+            "clean",
+            "confirm",
+            "increas",
+            "inspect",
+            "lower",
+            "mix",
+            "reduc",
+            "replac",
+            "reset",
+            "verify",
+        )
+    )
 
 
 def load_prompt(filename: str) -> str:
@@ -165,6 +200,15 @@ LOCATION_QUESTION = (
     "at one specific location on the board, or across multiple locations?"
 )
 
+DIAGNOSTIC_STAGE_ORDER = ["material", "diameter", "frequency", "changes", "location"]
+DIAGNOSTIC_QUESTIONS = {
+    "material": MATERIAL_QUESTION,
+    "diameter": DIAMETER_QUESTION,
+    "frequency": FREQUENCY_QUESTION,
+    "changes": CHANGES_QUESTION,
+    "location": LOCATION_QUESTION,
+}
+
 
 def has_meaningful_text(value: str | None) -> bool:
     if not value:
@@ -175,6 +219,104 @@ def has_meaningful_text(value: str | None) -> bool:
 def normalize_answer(value: str) -> str:
     """Normalize an answer for duplicate detection."""
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def answer_matches_stage(stage: str, answer: str) -> bool:
+    """Recognize answers that clearly belong to a structured diagnostic stage."""
+    normalized = normalize_answer(answer)
+
+    if stage == "frequency":
+        return any(
+            phrase in normalized
+            for phrase in (
+                "continuous",
+                "continuously",
+                "every part",
+                "every cycle",
+                "occasional",
+                "occasionally",
+                "intermittent",
+                "random",
+                "sometimes",
+            )
+        )
+
+    if stage == "changes":
+        return any(
+            phrase in normalized
+            for phrase in (
+                "changed",
+                "change",
+                "unchanged",
+                "no parameter",
+                "did not change",
+                "didnt change",
+                "pressure",
+                "dispensing time",
+                "nozzle",
+                "new machine",
+            )
+        )
+
+    if stage == "location":
+        return any(
+            phrase in normalized
+            for phrase in (
+                "one location",
+                "single location",
+                "specific location",
+                "multiple location",
+                "across multiple",
+                "all locations",
+                "everywhere",
+            )
+        )
+
+    return False
+
+
+def capture_future_answers(
+    current_stage: str,
+    answer: str,
+    session_state: dict,
+) -> list[str]:
+    """Keep clear answers to later questions without advancing the current stage."""
+    try:
+        current_index = DIAGNOSTIC_STAGE_ORDER.index(current_stage)
+    except ValueError:
+        return []
+
+    deferred_answers = session_state.setdefault("deferred_diagnostic_answers", {})
+    captured = []
+    for stage in DIAGNOSTIC_STAGE_ORDER[current_index + 1:]:
+        if stage not in deferred_answers and answer_matches_stage(stage, answer):
+            deferred_answers[stage] = answer
+            captured.append(stage)
+    return captured
+
+
+def advance_diagnostic_stage(
+    current_stage: str,
+    session_state: dict,
+    qa_pairs: list[dict],
+) -> str:
+    """Advance to the next unanswered stage, consuming answers captured early."""
+    current_index = DIAGNOSTIC_STAGE_ORDER.index(current_stage)
+    deferred_answers = session_state.get("deferred_diagnostic_answers", {})
+
+    for stage in DIAGNOSTIC_STAGE_ORDER[current_index + 1:]:
+        deferred_answer = deferred_answers.pop(stage, None)
+        if deferred_answer is None:
+            session_state["diagnostic_stage"] = stage
+            return stage
+        qa_pairs.append({
+            "question": DIAGNOSTIC_QUESTIONS[stage],
+            "answer": deferred_answer,
+            "captured_early": True,
+        })
+
+    session_state["diagnostic_stage"] = "complete"
+    return "complete"
 
 
 def validate_diagnostic_answer(
@@ -191,11 +333,8 @@ def validate_diagnostic_answer(
     }
 
     prompts = {
+        **DIAGNOSTIC_QUESTIONS,
         "material": "Please tell me the material being dispensed, such as solder paste, epoxy, or underfill.",
-        "diameter": DIAMETER_QUESTION,
-        "frequency": FREQUENCY_QUESTION,
-        "changes": CHANGES_QUESTION,
-        "location": LOCATION_QUESTION,
     }
 
     if not normalized:
@@ -234,62 +373,21 @@ def validate_diagnostic_answer(
             return prompts[stage]
 
     if stage == "frequency":
-        has_frequency = any(
-            phrase in normalized
-            for phrase in (
-                "continuous",
-                "continuously",
-                "every part",
-                "every cycle",
-                "occasional",
-                "occasionally",
-                "intermittent",
-                "random",
-                "sometimes",
-            )
-        )
-        if not has_frequency:
+        if not answer_matches_stage(stage, answer):
             return (
                 "I could not tell how often the defect occurs. "
                 "Please answer continuous, occasional, or intermittent."
             )
 
     if stage == "changes":
-        has_change_context = any(
-            phrase in normalized
-            for phrase in (
-                "changed",
-                "change",
-                "unchanged",
-                "no parameter",
-                "did not change",
-                "didnt change",
-                "pressure",
-                "dispensing time",
-                "nozzle",
-                "new machine",
-            )
-        )
-        if not has_change_context:
+        if not answer_matches_stage(stage, answer):
             return (
                 "I could not tell whether anything changed. Please name the changed setting "
                 "or equipment, or reply that there were no changes."
             )
 
     if stage == "location":
-        has_location = any(
-            phrase in normalized
-            for phrase in (
-                "one location",
-                "single location",
-                "specific location",
-                "multiple",
-                "across",
-                "all locations",
-                "everywhere",
-            )
-        )
-        if not has_location:
+        if not answer_matches_stage(stage, answer):
             return (
                 "I could not determine the affected location from that answer.\n\n"
                 f"{prompts[stage]}"
@@ -686,7 +784,20 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
             user_message,
             qa_pairs,
         )
+        captured_stages = capture_future_answers(
+            diagnostic_stage,
+            user_message,
+            session_state,
+        )
         if validation_message:
+            if captured_stages:
+                captured_details = " and ".join(
+                    stage.replace("_", " ") for stage in captured_stages
+                )
+                validation_message = (
+                    f"I've noted that detail for the {captured_details} step.\n\n"
+                    f"{validation_message}"
+                )
             return {
                 "reply": validation_message,
                 "step": "questioning",
@@ -696,12 +807,18 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
         if diagnostic_stage == "material":
             qa_pairs.append({"question": MATERIAL_QUESTION, "answer": user_message})
             session_state["qa_pairs"] = qa_pairs
-            session_state["diagnostic_stage"] = "diameter"
-            return {
-                "reply": f"Got it, {user_message.strip()}.\n\n{DIAMETER_QUESTION}",
-                "step": "questioning",
-                "updated_state": session_state,
-            }
+            next_stage = advance_diagnostic_stage(
+                diagnostic_stage, session_state, qa_pairs
+            )
+            if next_stage != "complete":
+                return {
+                    "reply": (
+                        f"Got it, {user_message.strip()}.\n\n"
+                        f"{DIAGNOSTIC_QUESTIONS[next_stage]}"
+                    ),
+                    "step": "questioning",
+                    "updated_state": session_state,
+                }
 
         if diagnostic_stage == "diameter":
             qa_pairs.append({"question": DIAMETER_QUESTION, "answer": user_message})
@@ -715,13 +832,16 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
             if threshold_context:
                 session_state["reference_threshold_context"] = threshold_context
                 session_state["reference_threshold_evaluation"] = threshold_evaluation
-            session_state["diagnostic_stage"] = "frequency"
+            next_stage = advance_diagnostic_stage(
+                diagnostic_stage, session_state, qa_pairs
+            )
             feedback = format_diameter_threshold_feedback(threshold_evaluation)
-            return {
-                "reply": f"{feedback}\n\n{FREQUENCY_QUESTION}",
-                "step": "questioning",
-                "updated_state": session_state,
-            }
+            if next_stage != "complete":
+                return {
+                    "reply": f"{feedback}\n\n{DIAGNOSTIC_QUESTIONS[next_stage]}",
+                    "step": "questioning",
+                    "updated_state": session_state,
+                }
 
         if diagnostic_stage == "frequency":
             qa_pairs.append({
@@ -729,12 +849,15 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
                 "answer": user_message,
             })
             session_state["qa_pairs"] = qa_pairs
-            session_state["diagnostic_stage"] = "changes"
-            return {
-                "reply": CHANGES_QUESTION,
-                "step": "questioning",
-                "updated_state": session_state,
-            }
+            next_stage = advance_diagnostic_stage(
+                diagnostic_stage, session_state, qa_pairs
+            )
+            if next_stage != "complete":
+                return {
+                    "reply": DIAGNOSTIC_QUESTIONS[next_stage],
+                    "step": "questioning",
+                    "updated_state": session_state,
+                }
 
         if diagnostic_stage == "changes":
             qa_pairs.append({
@@ -742,12 +865,15 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
                 "answer": user_message,
             })
             session_state["qa_pairs"] = qa_pairs
-            session_state["diagnostic_stage"] = "location"
-            return {
-                "reply": LOCATION_QUESTION,
-                "step": "questioning",
-                "updated_state": session_state,
-            }
+            next_stage = advance_diagnostic_stage(
+                diagnostic_stage, session_state, qa_pairs
+            )
+            if next_stage != "complete":
+                return {
+                    "reply": DIAGNOSTIC_QUESTIONS[next_stage],
+                    "step": "questioning",
+                    "updated_state": session_state,
+                }
 
         if diagnostic_stage == "location":
             qa_pairs.append({"question": LOCATION_QUESTION, "answer": user_message})
@@ -879,8 +1005,16 @@ async def run_orchestrator(session_id: str, user_message: str, session_state: di
             }
 
         session_state["feedback_fixed"] = fixed
-        session_state["step"] = "awaiting_feedback_action"
+        if describes_attempted_action(user_message):
+            session_state["feedback_action"] = user_message.strip()
+            session_state["step"] = "awaiting_feedback_cause"
+            return {
+                "reply": "What root cause did this confirm? Say 'unknown' if it is not confirmed yet.",
+                "step": "awaiting_feedback_cause",
+                "updated_state": session_state,
+            }
 
+        session_state["step"] = "awaiting_feedback_action"
         return {
             "reply": "Which recommended action did you try?",
             "step": "awaiting_feedback_action",
